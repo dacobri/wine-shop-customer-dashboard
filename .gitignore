@@ -1,0 +1,36 @@
+# Byte-compiled / cached Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS / Windows / Linux OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Word / Office lock files
+~$*
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python build artefacts
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Streamlit local secrets / cache (never commit secrets)
+.streamlit/secrets.toml
