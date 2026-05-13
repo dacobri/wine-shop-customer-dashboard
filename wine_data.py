@@ -26,9 +26,8 @@ import streamlit as st
 DATA_PATH = Path(__file__).parent / "5. Wine consumption.xlsx"
 
 # Map verbal frequency categories to a numeric visits-per-month estimate
-# (midpoint of each verbal range). This is needed because the Monetary
-# half of FM segmentation needs a numeric Frequency, and we use it again
-# to compute the annual revenue estimate (ticket × visits/mo × 12).
+# (midpoint of each verbal range). Used for FM segmentation and annual
+# revenue estimate (ticket × visits/mo × 12).
 FREQ_VISITS_PER_MONTH = {
     "Once per month":            1,
     "More than once per month":  2,
@@ -39,6 +38,18 @@ FREQ_VISITS_PER_MONTH = {
 }
 FREQ_ORDER = list(FREQ_VISITS_PER_MONTH.keys())
 AGE_ORDER  = ["23 to 30", "31 to 40", "41 to 50", "more than 50"]
+
+# Sociality score: 1 = private/alone, 7 = large group.
+# Used by the behavioral K-Means segmentation (frequency × sociality).
+SOCIAL_MAP = {
+    "Home":             1,
+    "With your couple": 2,
+    "Friends home":     3,
+    "On holidays":      4,
+    "Restaurant":       5,
+    "Birthday party":   6,
+    "Parties":          7,
+}
 
 # Deli tier classification — defines what counts as a "premium" cross-sell
 # (the strategic priority is shifting more of the basket into this set).
@@ -81,6 +92,7 @@ def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
     df["monthly_visits"]     = df["Wine frequency consumption"].map(FREQ_VISITS_PER_MONTH).fillna(1)
     df["est_annual_revenue"] = df["Ticket"] * df["monthly_visits"] * 12
     df["deli_tier"]          = df["Additional products"].apply(_classify_deli)
+    df["social_score"]       = df["Place to drink"].map(SOCIAL_MAP).fillna(4)
     return df
 
 

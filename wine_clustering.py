@@ -1,22 +1,21 @@
 """
 wine_clustering.py
 ==================
-Unsupervised market segmentation.
+Behavioral K-Means segmentation: clusters on visit frequency × sociality score.
 
-Primary algorithm: **K-Prototypes** (from the third-party `kmodes` package).
-It's the correct choice for this dataset because seven of our eight feature
-columns are categorical (occasion, payment, deli choice, age band, etc.)
-and only Ticket is numeric. K-Prototypes uses Hamming distance on the
-categoricals and Euclidean on the numerics — properly weighting both.
+This replaces the earlier K-Prototypes approach. Analysis in the research
+notebooks showed that K-Prototypes on the full mixed-type feature set merely
+rediscovers ticket price tiers (because the categorical features are uniformly
+distributed). Clustering on frequency × sociality finds four meaningful
+behavioral archetypes that are independent of ticket price, making them
+genuinely complementary to the FM (revenue) segmentation.
 
-Fallback: K-Means on one-hot encoded data, used if `kmodes` isn't
-installed. It works but distorts the categorical distance geometry, so
-it's strictly a "show something rather than nothing" backstop.
+Fixed K=4, validated by silhouette/DB/CH analysis (see cluster_insights.ipynb).
 
 Public API:
-    fit_clusters(df, k)       → cluster labels (auto-picks algorithm)
-    cluster_diagnostics(df)   → (Ks, inertias, silhouettes) for elbow plot
-    name_clusters_by_spend()  → rename numeric labels as Entry/Core/Premium
+    fit_behavioral_clusters(df)          → cluster label array
+    name_behavioral_clusters(df, col)    → {label_int: segment_name} mapping
+    behavioral_diagnostics(df)           → (Ks, inertias, silhouettes)
 """
 
 from __future__ import annotations
@@ -28,103 +27,47 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics       import silhouette_score
 from sklearn.cluster       import KMeans
 
-# K-Prototypes is the preferred algorithm. Soft-fail so the app still
-# runs (with the K-Means fallback) on machines without kmodes installed.
-try:
-    from kmodes.kprototypes import KPrototypes
-    KPROTOTYPES_OK = True
-except ImportError:
-    KPROTOTYPES_OK = False
+
+FEATURES = ["monthly_visits", "social_score"]
 
 
-# --------------------------------------------------------------------------
-# Features used for clustering
-# --------------------------------------------------------------------------
-
-CLUSTER_CAT_COLS = [
-    "Wine frequency consumption",
-    "Payment mode",
-    "Place to drink",
-    "Additional products",
-    "Gender",
-    "Age",
-]
-CLUSTER_NUM_COLS = ["Ticket"]
+@st.cache_data(show_spinner="Fitting behavioral clusters…")
+def fit_behavioral_clusters(df: pd.DataFrame, k: int = 4, seed: int = 42) -> np.ndarray:
+    """K-Means K=4 on (frequency, sociality). Returns integer cluster labels."""
+    X = StandardScaler().fit_transform(df[FEATURES])
+    return KMeans(n_clusters=k, n_init=15, random_state=seed).fit_predict(X)
 
 
-# --------------------------------------------------------------------------
-# Internal: design matrix builder for K-Means / silhouette
-# --------------------------------------------------------------------------
+def name_behavioral_clusters(df: pd.DataFrame, label_col: str) -> dict[int, str]:
+    """Rank clusters by freq and sociality, assign names by archetype.
 
-def _design_matrix(df: pd.DataFrame) -> np.ndarray:
-    """One-hot encode categoricals + scale numerics. Used by K-Means routes."""
-    X_cat = pd.get_dummies(df[CLUSTER_CAT_COLS].astype(str))
-    X_num = StandardScaler().fit_transform(df[CLUSTER_NUM_COLS])
-    return np.hstack([X_cat.values, X_num])
-
-
-# --------------------------------------------------------------------------
-# Public API
-# --------------------------------------------------------------------------
-
-@st.cache_data(show_spinner="Fitting K-Prototypes…")
-def run_kprototypes(df: pd.DataFrame, k: int = 3, seed: int = 42) -> np.ndarray:
-    """Fit K-Prototypes on the mixed-type data and return cluster labels.
-
-    Streamlit caches the result keyed on (df contents, k, seed). The model
-    is therefore fit at most once per (filter selection × K) combination
-    within a session — subsequent calls return the cached labels instantly.
+    Uses rank-based comparison (clusters vs each other) rather than overall
+    data medians — robust against boundary sensitivity when cluster means
+    sit close to the population median.
     """
-    work = df[CLUSTER_CAT_COLS + CLUSTER_NUM_COLS].copy()
-    for c in CLUSTER_CAT_COLS:
-        work[c] = work[c].astype(str).fillna("Unknown")
-    cat_idx = [work.columns.get_loc(c) for c in CLUSTER_CAT_COLS]
+    means = df.groupby(label_col)[FEATURES].mean()
+    freq_rank = means["monthly_visits"].rank()
+    soc_rank  = means["social_score"].rank()
 
-    model = KPrototypes(n_clusters=k, init="Cao", n_init=5, random_state=seed, verbose=0)
-    labels = model.fit_predict(work.values, categorical=cat_idx)
-    return np.asarray(labels)
+    def _name(idx: int) -> str:
+        hi_f = freq_rank[idx] > len(means) / 2
+        hi_s = soc_rank[idx]  > len(means) / 2
+        if   hi_f and     hi_s: return "Social Regulars"
+        elif hi_f and not hi_s: return "Daily Home Drinkers"
+        elif hi_s and not hi_f: return "Occasion Celebrants"
+        else:                   return "Casual Home Drinkers"
 
-
-@st.cache_data(show_spinner="Fitting K-Means…")
-def run_kmeans_fallback(df: pd.DataFrame, k: int = 3, seed: int = 42) -> np.ndarray:
-    """K-Means on one-hot encoded features. Fallback when kmodes is unavailable."""
-    X = _design_matrix(df)
-    return KMeans(n_clusters=k, n_init=10, random_state=seed).fit_predict(X)
+    return {int(idx): _name(idx) for idx in means.index}
 
 
 @st.cache_data(show_spinner=False)
-def cluster_diagnostics(df: pd.DataFrame):
-    """Elbow inertia + silhouette score across K=2..6 for the K-selection chart.
-
-    We always use K-Means here regardless of whether K-Prototypes is
-    available: silhouette needs a metric space, and the inertia from
-    K-Prototypes isn't directly comparable. This is purely diagnostic.
-    """
-    X = _design_matrix(df)
-    ks = list(range(2, 7))
+def behavioral_diagnostics(df: pd.DataFrame):
+    """Elbow inertia + silhouette across K=2..7 for the diagnostic chart."""
+    X = StandardScaler().fit_transform(df[FEATURES])
+    ks = list(range(2, 8))
     inertias, sils = [], []
     for k in ks:
-        m = KMeans(n_clusters=k, n_init=10, random_state=42).fit(X)
+        m = KMeans(n_clusters=k, n_init=15, random_state=42).fit(X)
         inertias.append(m.inertia_)
         sils.append(silhouette_score(X, m.labels_))
     return ks, inertias, sils
-
-
-def fit_clusters(df: pd.DataFrame, k: int = 3) -> np.ndarray:
-    """Convenience wrapper — runs K-Prototypes if available, else K-Means."""
-    if KPROTOTYPES_OK:
-        return run_kprototypes(df, k=k)
-    return run_kmeans_fallback(df, k=k)
-
-
-def name_clusters_by_spend(df: pd.DataFrame, label_col: str) -> dict:
-    """Rank clusters by avg Ticket and assign human-readable spend-tier names."""
-    avg = df.groupby(label_col)["Ticket"].mean().sort_values()
-    n = len(avg)
-    presets = {
-        2: ["Entry Buyers", "Premium Buyers"],
-        3: ["Entry Buyers", "Core Buyers", "Premium Buyers"],
-        4: ["Entry Buyers", "Mid-Low Buyers", "Mid-High Buyers", "Premium Buyers"],
-    }
-    names = presets.get(n, [f"Tier {i+1}" for i in range(n)])
-    return dict(zip(avg.index, names))
