@@ -26,7 +26,7 @@ SEGMENT_META = {
         "actions": [
             "Launch a named loyalty programme (e.g. \"Cave Club\") with digital membership",
             "Invite to private tastings, new-arrival previews, and producer evenings",
-            "Offer premium hamper bundles (wine + Spanish ham or salmon) as default upsell at checkout",
+            "Offer premium hamper bundles (wine + Spanish ham or salmon*) as default upsell at checkout",
             "Ensure a consistent, high-quality in-store experience — this group is retention-sensitive",
         ],
     },
@@ -95,7 +95,7 @@ BEHAVIORAL_META = {
             "\"Tonight's pairing\" shelf-talker next to bestselling everyday wines — one deli suggestion per label",
             "Introduce a subscription basket (weekly wine + one deli item) at a slight discount",
             "WhatsApp/email nudge mid-week: 'New arrival that pairs well with your usual red'",
-            "Seasonal hamper tailored for two (wine + cheese or salmon) positioned near the checkout",
+            "Seasonal hamper tailored for two (wine + cheese or salmon*) positioned near the checkout",
         ],
     },
     "Occasion Celebrants": {

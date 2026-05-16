@@ -213,3 +213,38 @@ def callout(emoji: str, title: str, body: str, color: str | None = None) -> str:
         <span style='color: {PALETTE["charcoal"]}; font-size:13px;'>{body}</span>
     </div>
     """
+
+
+# ── Salmond footnote ─────────────────────────────────────────────────────────
+# "Salmond" appears verbatim in the source survey — almost certainly a typo.
+# Most plausibly "Almond" (consistent with the deli / nuts category), though
+# possibly "Salmon" (less likely given the product mix). The original entry
+# is preserved for data integrity; this note disambiguates wherever the term
+# appears in the dashboard.
+
+def salmond_footnote() -> str:
+    """HTML for the standard 'Salmond' footnote — render with st.markdown(unsafe_allow_html=True)."""
+    return f"""
+    <div style='background: rgba(212, 135, 42, 0.06); padding: 10px 14px;
+                border-left: 3px solid {PALETTE["gold"]}; border-radius: 4px;
+                margin: 8px 0; font-size: 12px; color: {PALETTE["midgray"]};'>
+        <strong style='color:{PALETTE["charcoal"]};'>* Note on "Salmond"</strong> —
+        preserved exactly as it appears in the source survey. Most likely a
+        typo for <b>Almond</b> (consistent with the deli / nuts category),
+        though it could also mean <b>Salmon</b> (less likely given the product
+        mix). The original entry has been kept unchanged for data integrity;
+        treat it as a single distinct product whenever it appears below.
+    </div>
+    """
+
+
+def with_salmond_marker(df, col: str = "Additional products"):
+    """Return a copy of df where 'Salmond' in `col` is displayed as 'Salmond*'.
+
+    Use this just before plotting / displaying tables so the asterisk reaches
+    the user without mutating the underlying data.
+    """
+    out = df.copy()
+    if col in out.columns:
+        out[col] = out[col].replace({"Salmond": "Salmond*"})
+    return out

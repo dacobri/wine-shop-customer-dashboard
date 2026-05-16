@@ -36,9 +36,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from wine_theme      import (PALETTE, SEQ, SEGMENT_COLORS, BEHAVIORAL_COLORS,
-                              inject_css, base_layout, kpi_card, callout)
+                              inject_css, base_layout, kpi_card, callout,
+                              salmond_footnote, with_salmond_marker)
 from wine_data       import (load_data, compute_fm_segments,
-                              FREQ_ORDER, FREQ_VISITS_PER_MONTH, AGE_ORDER)
+                              FREQ_ORDER, FREQ_VISITS_PER_MONTH, AGE_ORDER,
+                              EDUCATION_GROUP_ORDER)
 from wine_clustering import (fit_behavioral_clusters, name_behavioral_clusters,
                               behavioral_diagnostics)
 from wine_simulator  import simulate_revenue
@@ -62,65 +64,386 @@ inject_css()
 # TAB RENDERERS
 # ============================================================================
 
-def render_profile(df_f: pd.DataFrame) -> None:
-    st.subheader("Who walks through the door?")
-    st.caption("Demographic and behavioral profile of the (filtered) customer base.")
+def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
+    """Customer Profile tab — 4-section narrative arc.
 
-    c1, c2, c3 = st.columns(3)
+    Design follows Prof. Guerris's visualization principles:
+    KISS (5 charts only), Z-pattern info priority, sort-by-value never
+    alphabetical, color for emphasis, diverging bars for survey-style
+    binary signals, heatmap for relationship patterns. Beginning &
+    End: hero up top, big-picture relationships at the bottom.
 
-    g = df_f["Gender"].value_counts().reset_index()
-    g.columns = ["Gender", "Count"]
-    fig = px.pie(g, values="Count", names="Gender", hole=0.5,
-                 color_discrete_sequence=[PALETTE["merlot"], PALETTE["rose"]])
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(base_layout(title="Gender", height=320, showlegend=False))
-    c1.plotly_chart(fig, use_container_width=True)
+    Filter behavior (per user spec):
+      - Hero, pyramid, education funnel: filter-INDEPENDENT (always
+        show the true customer base). Note appears if filters active.
+      - Diverging bar, boxplot, Cramér's V: filter-AWARE.
+      - The diverging bar self-falls back to df_all if a gender filter
+        would collapse the chart.
+    """
+    filters_active = len(df_f) != len(df_all)
 
-    a = df_f["Age"].value_counts().reindex(AGE_ORDER).fillna(0).reset_index()
-    a.columns = ["Age", "Count"]
-    fig = px.bar(a, x="Age", y="Count", color_discrete_sequence=[PALETTE["merlot"]])
-    fig.update_layout(base_layout(title="Age band", height=320, showlegend=False))
-    c2.plotly_chart(fig, use_container_width=True)
+    # ── Hero ───────────────────────────────────────────────────────────────
+    _profile_hero(df_all, filters_active)
 
-    p = df_f["Payment mode"].value_counts().reset_index()
-    p.columns = ["Payment", "Count"]
-    fig = px.pie(p, values="Count", names="Payment", hole=0.5,
-                 color_discrete_sequence=[PALETTE["merlot"], PALETTE["teal"], PALETTE["gold"]])
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(base_layout(title="Payment mode", height=320, showlegend=False))
-    c3.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
 
-    c4, c5 = st.columns(2)
-    freq = (df_f["Wine frequency consumption"].value_counts()
-              .reindex(FREQ_ORDER).fillna(0).reset_index())
-    freq.columns = ["Frequency", "Count"]
-    fig = px.bar(freq, x="Count", y="Frequency", orientation="h",
-                 color_discrete_sequence=[PALETTE["merlot"]])
-    fig.update_layout(base_layout(title="Wine consumption frequency", height=360,
-                                  showlegend=False))
-    c4.plotly_chart(fig, use_container_width=True)
+    # ── Section A: Demographics (filter-independent) ───────────────────────
+    st.markdown("### A. Who they are — demographic composition")
+    if filters_active:
+        st.caption(f"ℹ️ Sidebar filters are active. These composition views "
+                   f"always show all {len(df_all)} customers — they would "
+                   f"lose meaning if filtered.")
+    else:
+        st.caption("The structural make-up of the customer base — age, gender, education tier.")
+    pa, pb = st.columns([3, 2])
+    with pa: _profile_population_pyramid(df_all)
+    with pb: _profile_education_funnel(df_all)
 
-    place = df_f["Place to drink"].value_counts().reset_index()
-    place.columns = ["Place", "Count"]
-    fig = px.bar(place, x="Count", y="Place", orientation="h",
-                 color_discrete_sequence=[PALETTE["teal"]])
-    fig.update_layout(base_layout(title="Where customers drink wine", height=360,
-                                  showlegend=False))
-    c5.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
 
-    edu = df_f["Education"].dropna().value_counts().reset_index()
-    edu.columns = ["Education", "Count"]
-    fig = px.bar(edu, x="Count", y="Education", orientation="h",
-                 color_discrete_sequence=[PALETTE["merlot"]])
-    fig.update_layout(base_layout(title="Education level", height=380, showlegend=False))
+    # ── Section B: Where & When they drink (THE marquee chart) ────────────
+    st.markdown("### B. Where they drink — the gender signal")
+    st.caption("The strongest behavioral signal in the dataset. "
+               "Sort order is by Male/Female skew per occasion.")
+    _profile_gender_place_diverging(df_f, df_all)
+
+    st.markdown("---")
+
+    # ── Section C: How they spend (filter-aware) ───────────────────────────
+    st.markdown("### C. How they spend — basket size by education tier")
+    _profile_ticket_by_education(df_f)
+
+    st.markdown("---")
+
+    # ── Section D: What connects (filter-aware) ────────────────────────────
+    st.markdown("### D. What connects — relationship strength map")
+    st.caption("Cramér's V quantifies association between categorical variables. "
+               "Higher values (darker) = stronger relationship.")
+    _profile_cramers_v_heatmap(df_f)
+
+
+# ── Hero ──────────────────────────────────────────────────────────────────
+
+def _profile_hero(df: pd.DataFrame, filters_active: bool) -> None:
+    """Big-number persona card. Always reflects the full customer base."""
+    avg_ticket = df["Ticket"].mean()
+    modal = {
+        "Gender":      df["Gender"].mode().iloc[0],
+        "Age":         df["Age"].mode().iloc[0],
+        "Edu":         df["Education_group"].dropna().mode().iloc[0],
+        "Freq":        df["Wine frequency consumption"].mode().iloc[0],
+        "Place":       df["Place to drink"].mode().iloc[0],
+        "Product":     df["Additional products"].mode().iloc[0],
+    }
+    # Salmond marker for the product chip
+    product_disp = modal["Product"] + ("*" if modal["Product"] == "Salmond" else "")
+
+    avatar_emoji = "👨" if modal["Gender"] == "Male" else "👩"
+    chip_style = (f"display:inline-block; padding:6px 14px; margin:4px 4px 0 0; "
+                  f"background:{PALETTE['cream']}; color:{PALETTE['charcoal']}; "
+                  f"border-radius:16px; font-size:12px; font-weight:500;")
+
+    st.markdown(f"""
+    <div style='background:white; padding:28px 32px; border-radius:14px;
+                border:1px solid {PALETTE["border"]};
+                box-shadow:0 2px 12px rgba(0,0,0,0.04); margin-bottom:8px;'>
+        <div style='display:flex; align-items:center; gap:28px; flex-wrap:wrap;'>
+            <div style='flex-shrink:0;'>
+                <div style='font-size:13px; color:{PALETTE["midgray"]}; letter-spacing:1px;
+                            text-transform:uppercase; margin-bottom:4px;'>
+                    Typical basket
+                </div>
+                <div style='font-size:72px; font-weight:800; color:{PALETTE["burgundy"]};
+                            line-height:1; font-family:Georgia, serif;'>
+                    €{avg_ticket:.0f}
+                </div>
+            </div>
+            <div style='flex:1; min-width:300px;'>
+                <p style='font-size:16px; color:{PALETTE["charcoal"]}; line-height:1.5; margin:0 0 12px 0;'>
+                    {avatar_emoji} The typical wine-shop customer is
+                    <b>{modal["Gender"].lower()}</b>, aged <b>{modal["Age"]}</b>,
+                    with a <b>{modal["Edu"]}</b>-level education.
+                    Visits <b>{modal["Freq"].lower()}</b> and most often drinks
+                    at <b>{modal["Place"].lower()}</b>.
+                </p>
+                <div>
+                    <span style='{chip_style}'>👤 {modal["Gender"]}</span>
+                    <span style='{chip_style}'>🎂 {modal["Age"]}</span>
+                    <span style='{chip_style}'>🎓 {modal["Edu"]}</span>
+                    <span style='{chip_style}'>📅 {modal["Freq"]}</span>
+                    <span style='{chip_style}'>📍 {modal["Place"]}</span>
+                    <span style='{chip_style}'>🧀 {product_disp}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if filters_active:
+        st.caption(f"ℹ️ Sidebar filters active — this hero always reflects "
+                   f"the full {len(df)} customer base, not the filtered slice.")
+
+
+# ── Section A.1: Population pyramid ───────────────────────────────────────
+
+def _profile_population_pyramid(df: pd.DataFrame) -> None:
+    """Classic horizontal age × gender pyramid. Male on left (negative), Female on right."""
+    pivot = (df.pivot_table(index="Age", columns="Gender", aggfunc="size", fill_value=0)
+               .reindex(AGE_ORDER))
+    if "Male"   not in pivot.columns: pivot["Male"]   = 0
+    if "Female" not in pivot.columns: pivot["Female"] = 0
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=pivot.index, x=-pivot["Male"], orientation="h",
+        name="Male", marker_color=PALETTE["burgundy"],
+        text=pivot["Male"], textposition="auto",
+        hovertemplate="Age: <b>%{y}</b><br>Male: %{text} customers<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        y=pivot.index, x=pivot["Female"], orientation="h",
+        name="Female", marker_color=PALETTE["teal"],
+        text=pivot["Female"], textposition="auto",
+        hovertemplate="Age: <b>%{y}</b><br>Female: %{text} customers<extra></extra>",
+    ))
+
+    # Symmetric X-axis range with absolute-value tick labels
+    max_abs = int(max(pivot["Male"].max(), pivot["Female"].max())) + 5
+    tick_step = 20 if max_abs > 40 else 10
+    ticks = list(range(-max_abs - (-max_abs % tick_step), max_abs + 1, tick_step))
+    tick_text = [str(abs(t)) for t in ticks]
+
+    fig.update_layout(base_layout(
+        title="Age × Gender — population pyramid",
+        height=380, barmode="overlay", bargap=0.15,
+        xaxis=dict(tickvals=ticks, ticktext=tick_text,
+                   zeroline=True, zerolinewidth=2,
+                   zerolinecolor=PALETTE["charcoal"], title="Customers"),
+        yaxis=dict(title=""),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    ))
     st.plotly_chart(fig, use_container_width=True)
 
-    fig = px.histogram(df_f, x="Ticket", nbins=25,
-                       color_discrete_sequence=[PALETTE["teal"]])
-    fig.update_layout(base_layout(title="Ticket distribution (€)", height=320,
-                                  showlegend=False, xaxis_title="Ticket (€)",
-                                  yaxis_title="Customers"))
+
+# ── Section A.2: Education funnel ─────────────────────────────────────────
+
+def _profile_education_funnel(df: pd.DataFrame) -> None:
+    """Horizontal bar of the 4 education tiers, sorted by count (largest first).
+
+    Per the professor's "sort by value, never alphabetical" principle.
+    """
+    counts = (df["Education_group"].dropna()
+                .value_counts()
+                .reindex(EDUCATION_GROUP_ORDER).fillna(0)
+                .astype(int)
+                .sort_values(ascending=True))   # ascending → largest at top
+    total = counts.sum() or 1
+    pct = (counts / total * 100).round(0).astype(int)
+
+    # Colour the largest bar in burgundy, the rest in muted teal — focal emphasis
+    colors = [PALETTE["burgundy"] if v == counts.max() else PALETTE["teal"]
+              for v in counts.values]
+
+    fig = go.Figure(go.Bar(
+        y=counts.index, x=counts.values, orientation="h",
+        marker_color=colors,
+        text=[f"{c}  ({p}%)" for c, p in zip(counts.values, pct.values)],
+        textposition="outside",
+        hovertemplate="<b>%{y}</b><br>%{x} customers<extra></extra>",
+    ))
+    fig.update_layout(base_layout(
+        title="Education tiers — 4 grouped levels",
+        height=380, showlegend=False,
+        xaxis=dict(title="Customers", range=[0, counts.max() * 1.25]),
+        yaxis=dict(title=""),
+    ))
     st.plotly_chart(fig, use_container_width=True)
+
+
+# ── Section B: Diverging Gender × Place ───────────────────────────────────
+
+def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
+    """Diverging horizontal bars — Male left, Female right, sorted by skew.
+
+    Falls back to df_all (with a notice) if a Gender filter has collapsed
+    the chart to one side.
+    """
+    df = df_f
+    fallback_note = None
+    if df["Gender"].nunique() < 2:
+        df = df_all
+        fallback_note = ("Gender filter active — this chart needs both genders, "
+                         f"so it shows all {len(df_all)} customers instead.")
+
+    ct = pd.crosstab(df["Place to drink"], df["Gender"])
+    if "Male"   not in ct.columns: ct["Male"]   = 0
+    if "Female" not in ct.columns: ct["Female"] = 0
+    ct["total"]  = ct["Male"] + ct["Female"]
+    ct["m_pct"]  = ct["Male"]   / ct["total"]
+    ct["f_pct"]  = ct["Female"] / ct["total"]
+    ct = ct.sort_values("m_pct")   # most-female at top, most-male at bottom
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=ct.index, x=-ct["Male"], orientation="h",
+        name="Male", marker_color=PALETTE["burgundy"],
+        text=[f"{n} ({p*100:.0f}%)" for n, p in zip(ct["Male"], ct["m_pct"])],
+        textposition="inside", insidetextanchor="end",
+        hovertemplate="<b>%{y}</b><br>Male: %{text}<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        y=ct.index, x=ct["Female"], orientation="h",
+        name="Female", marker_color=PALETTE["teal"],
+        text=[f"{n} ({p*100:.0f}%)" for n, p in zip(ct["Female"], ct["f_pct"])],
+        textposition="inside", insidetextanchor="start",
+        hovertemplate="<b>%{y}</b><br>Female: %{text}<extra></extra>",
+    ))
+    max_abs = int(max(ct["Male"].max(), ct["Female"].max())) + 10
+    fig.update_layout(base_layout(
+        title="Where customers drink — Male / Female split",
+        height=470, barmode="relative",
+        xaxis=dict(range=[-max_abs, max_abs],
+                   zeroline=True, zerolinewidth=2,
+                   zerolinecolor=PALETTE["charcoal"], title="Customers"),
+        yaxis=dict(title=""),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Top-2 skew insights for the prose callout (only if both genders present)
+    insights = []
+    male_skewed = ct.nlargest(2, "m_pct")
+    female_skewed = ct.nlargest(2, "f_pct")
+    for place, row in male_skewed.iterrows():
+        if row["m_pct"] >= 0.60 and row["total"] >= 5:
+            insights.append(f"<b>{row['m_pct']*100:.0f}%</b> of <i>{place}</i> drinkers are men")
+    for place, row in female_skewed.iterrows():
+        if row["f_pct"] >= 0.60 and row["total"] >= 5:
+            insights.append(f"<b>{row['f_pct']*100:.0f}%</b> of <i>{place}</i> drinkers are women")
+
+    if insights:
+        st.markdown(callout(
+            "📊", "The gender signal",
+            " · ".join(insights) + ". Use this to design gender-tailored "
+            "in-store displays and bundle promotions for each occasion."
+        ), unsafe_allow_html=True)
+
+    if fallback_note:
+        st.info(f"ℹ️ {fallback_note}")
+
+
+# ── Section C: Ticket × Education boxplot ─────────────────────────────────
+
+def _profile_ticket_by_education(df: pd.DataFrame) -> None:
+    """Boxplot of Ticket grouped by 4-tier Education. Filter-aware."""
+    work = df.dropna(subset=["Education_group"]).copy()
+    if len(work) == 0:
+        st.info("No customers with Education data in current filter.")
+        return
+
+    fig = px.box(
+        work, x="Education_group", y="Ticket",
+        category_orders={"Education_group": EDUCATION_GROUP_ORDER},
+        color="Education_group",
+        color_discrete_map={
+            "Basic":        PALETTE["burgundy"],
+            "Technical":    PALETTE["merlot"],
+            "University":   PALETTE["gold"],
+            "Postgraduate": PALETTE["teal"],
+        },
+        points="outliers",
+    )
+    fig.update_layout(base_layout(
+        title="Basket distribution by education tier",
+        height=380, showlegend=False,
+        xaxis=dict(title=""), yaxis=dict(title="Ticket (€)"),
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+    means = work.groupby("Education_group", observed=True)["Ticket"].mean().round(0)
+    means = means.reindex(EDUCATION_GROUP_ORDER).dropna()
+    if len(means) >= 2:
+        highest_grp, highest_val = means.idxmax(), int(means.max())
+        lowest_grp,  lowest_val  = means.idxmin(), int(means.min())
+        st.markdown(callout(
+            "💸", "Education does not predict basket size",
+            f"<b>{highest_grp}</b>-tier customers average <b>€{highest_val}</b> · "
+            f"<b>{lowest_grp}</b>-tier customers average <b>€{lowest_val}</b>. "
+            f"Education predicts <i>what</i> people buy, not <i>how much</i>. "
+            f"Segmenting offers by spend (FM segments) is more actionable than "
+            f"segmenting by education."
+        ), unsafe_allow_html=True)
+
+
+# ── Section D: Cramér's V heatmap ─────────────────────────────────────────
+
+def _profile_cramers_v_heatmap(df: pd.DataFrame) -> None:
+    """Pairwise Cramér's V across categorical variables. Filter-aware."""
+    from scipy.stats import chi2_contingency
+
+    def _cramers_v(x, y):
+        ct = pd.crosstab(x, y)
+        if ct.shape[0] < 2 or ct.shape[1] < 2:
+            return np.nan
+        chi2 = chi2_contingency(ct, correction=False)[0]
+        n = ct.values.sum()
+        if n == 0:
+            return np.nan
+        r, k = ct.shape
+        return float(np.sqrt(chi2 / (n * (min(r, k) - 1))))
+
+    cats = ["Gender", "Age", "Education_group", "Wine frequency consumption",
+            "Place to drink", "Additional products", "Payment mode"]
+    work = df.dropna(subset=["Education_group"])
+    if len(work) < 10:
+        st.info("Too few customers in current filter to compute reliable associations.")
+        return
+
+    mat = pd.DataFrame(index=cats, columns=cats, dtype=float)
+    for a in cats:
+        for b in cats:
+            mat.loc[a, b] = np.nan if a == b else _cramers_v(work[a], work[b])
+
+    # Friendlier short labels
+    short = {
+        "Wine frequency consumption": "Frequency",
+        "Place to drink":              "Occasion",
+        "Additional products":         "Deli product",
+        "Education_group":             "Education",
+        "Payment mode":                "Payment",
+    }
+    pretty = [short.get(c, c) for c in cats]
+    mat.index = pretty
+    mat.columns = pretty
+
+    fig = px.imshow(
+        mat, text_auto=".2f", aspect="auto",
+        color_continuous_scale=[
+            [0.0, PALETTE["cream"]],
+            [0.5, PALETTE["gold"]],
+            [1.0, PALETTE["burgundy"]],
+        ],
+        zmin=0, zmax=0.4,
+        labels=dict(color="Cramér's V"),
+    )
+    fig.update_layout(base_layout(
+        title=f"Relationship strength map · {len(work)} customers",
+        height=470, xaxis=dict(side="bottom"),
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Surface the top-3 strongest off-diagonal pairs
+    upper = mat.where(np.triu(np.ones(mat.shape, dtype=bool), k=1))
+    top3 = upper.stack().dropna().sort_values(ascending=False).head(3)
+    pair_strings = [f"<b>{a}</b> × <b>{b}</b> (V={v:.2f})"
+                    for (a, b), v in top3.items()]
+    if pair_strings:
+        st.markdown(callout(
+            "🧭", "Strongest relationships in the data",
+            " · ".join(pair_strings) + ". Darker cells = stronger association. "
+            "Payment mode shows the weakest links overall — confirming the "
+            "decision to drop it as a filter dimension."
+        ), unsafe_allow_html=True)
 
 
 def render_segments(df_f: pd.DataFrame) -> None:
@@ -404,8 +727,11 @@ def render_products(df_f: pd.DataFrame) -> None:
         "This view diagnoses where the deli is winning and where the gaps are."
     )
 
+    # Replace 'Salmond' with 'Salmond*' in displayed copies — see footnote at bottom.
+    df_display = with_salmond_marker(df_f)
+
     c1, c2 = st.columns(2)
-    sold = df_f["Additional products"].value_counts().reset_index()
+    sold = df_display["Additional products"].value_counts().reset_index()
     sold.columns = ["Product", "Customers"]
     fig = px.bar(sold, x="Customers", y="Product", orientation="h",
                  color="Customers",
@@ -431,14 +757,14 @@ def render_products(df_f: pd.DataFrame) -> None:
     st.markdown(callout(
         "🧀", "Cross-sell gap — the strategic priority",
         f"<b>{premium_share:.0f}%</b> of customers buy premium deli "
-        f"(cheese, Spanish ham, salmon), but no single premium product reaches "
+        f"(cheese, Spanish ham, salmon*), but no single premium product reaches "
         f"majority share in any segment — most still default to olives. "
         f"A \"Pair It\" display at eye level and trained staff suggesting one deli match "
         f"per wine could lift premium adoption within a quarter."
     ), unsafe_allow_html=True)
 
     st.markdown(" ")
-    ct = pd.crosstab(df_f["FM_segment"], df_f["Additional products"], normalize="index") * 100
+    ct = pd.crosstab(df_display["FM_segment"], df_display["Additional products"], normalize="index") * 100
     fig = px.imshow(ct, text_auto=".0f", aspect="auto",
                     color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]],
                     labels=dict(x="Product", y="Segment", color="% of segment"))
@@ -446,14 +772,14 @@ def render_products(df_f: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("**Drinking occasion × Product purchased — pairing intelligence for in-store displays**")
-    ct2 = pd.crosstab(df_f["Place to drink"], df_f["Additional products"])
+    ct2 = pd.crosstab(df_display["Place to drink"], df_display["Additional products"])
     fig = px.imshow(ct2, text_auto=True, aspect="auto",
                     color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]],
                     labels=dict(x="Product", y="Occasion", color="Customers"))
     fig.update_layout(base_layout(title="Occasion × Product co-occurrence", height=440))
     st.plotly_chart(fig, use_container_width=True)
 
-    top = (df_f.groupby(["FM_segment", "Additional products"]).size()
+    top = (df_display.groupby(["FM_segment", "Additional products"]).size()
                  .reset_index(name="customers")
                  .sort_values(["FM_segment", "customers"], ascending=[True, False]))
     top["rank"] = top.groupby("FM_segment").cumcount() + 1
@@ -461,6 +787,9 @@ def render_products(df_f: pd.DataFrame) -> None:
     top1.columns = ["Segment", "Top deli choice", "Customers"]
     st.markdown("**Top deli choice per FM segment** — natural anchor product for each group's bundles")
     st.dataframe(top1, hide_index=True, use_container_width=True)
+
+    # ── Salmond footnote — single source of truth, referenced by every * in this tab ──
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
 
 def render_actions(df_f: pd.DataFrame) -> None:
@@ -536,6 +865,8 @@ def render_actions(df_f: pd.DataFrame) -> None:
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
+
 
 def render_explorer(df_f: pd.DataFrame) -> None:
     st.subheader("Customer Explorer")
@@ -563,6 +894,8 @@ def render_explorer(df_f: pd.DataFrame) -> None:
         st.info("No customers match the current selection.")
         return
 
+    # Display copy with 'Salmond' marked — see footnote below the table
+    df_x = with_salmond_marker(df_x)
     df_show = df_x[[
         "ID", "Gender", "Age", "Education",
         "Wine frequency consumption", "Place to drink", "Additional products",
@@ -587,6 +920,8 @@ def render_explorer(df_f: pd.DataFrame) -> None:
         file_name="wine_shop_customers_filtered.csv",
         mime="text/csv",
     )
+
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
 
 def render_overview(df_f: pd.DataFrame) -> None:
@@ -710,10 +1045,6 @@ def main() -> None:
             options=[a for a in AGE_ORDER if a in df["Age"].unique()],
             default=[a for a in AGE_ORDER if a in df["Age"].unique()],
         )
-        payment_sel = st.multiselect(
-            "Payment mode", options=sorted(df["Payment mode"].unique()),
-            default=sorted(df["Payment mode"].unique()),
-        )
         ticket_range = st.slider(
             "Ticket range (€)",
             int(df["Ticket"].min()), int(df["Ticket"].max()),
@@ -737,7 +1068,6 @@ def main() -> None:
     mask = (
         df["Gender"].isin(gender_sel)
         & df["Age"].isin(age_sel)
-        & df["Payment mode"].isin(payment_sel)
         & df["Ticket"].between(ticket_range[0], ticket_range[1])
     )
     df_f = df[mask].copy()
@@ -766,7 +1096,7 @@ def main() -> None:
         "📊 Strategic Overview",
     ])
 
-    with tabs[0]: render_profile(df_f)
+    with tabs[0]: render_profile(df_f, df)
     with tabs[1]: render_segments(df_f)
     with tabs[2]: render_behavioral(df_f)
     with tabs[3]: render_products(df_f)

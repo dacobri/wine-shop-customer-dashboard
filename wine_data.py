@@ -51,6 +51,22 @@ SOCIAL_MAP = {
     "Parties":          7,
 }
 
+# Education tier rollup: collapse the 9 raw levels into 4 marketing-relevant
+# tiers. The original `Education` column is preserved untouched for the
+# raw customer-table view in the Explorer.
+EDUCATION_GROUPS = {
+    "Primary":                        "Basic",
+    "Secondary Unfinished":           "Basic",
+    "Secondary":                      "Basic",
+    "Technical Superior Unfinished":  "Technical",
+    "Technical Superior":             "Technical",
+    "Universitary Degree Unfinished": "University",
+    "Universitary Degree":            "University",
+    "Postgraduate Unfinished":        "Postgraduate",
+    "Postgraduate":                   "Postgraduate",
+}
+EDUCATION_GROUP_ORDER = ["Basic", "Technical", "University", "Postgraduate"]
+
 # Deli tier classification — defines what counts as a "premium" cross-sell
 # (the strategic priority is shifting more of the basket into this set).
 # Note: "Salmond" is intentional — it matches the (mis)spelling in the survey file.
@@ -86,6 +102,14 @@ def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
     """
     df = pd.read_excel(path, sheet_name="Hoja1")
 
+    # Defensive whitespace strip on every text column.
+    # The source survey has at least one entry with a trailing space
+    # ('Secondary ' instead of 'Secondary'), which would otherwise drop
+    # 71 customers out of the Education_group mapping.
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = df[c].apply(lambda v: v.strip() if isinstance(v, str) else v)
+
     # Known data-quality fix: stray '1' value in Education column.
     df["Education"] = df["Education"].replace({1: np.nan, "1": np.nan})
 
@@ -93,6 +117,7 @@ def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
     df["est_annual_revenue"] = df["Ticket"] * df["monthly_visits"] * 12
     df["deli_tier"]          = df["Additional products"].apply(_classify_deli)
     df["social_score"]       = df["Place to drink"].map(SOCIAL_MAP).fillna(4)
+    df["Education_group"]    = df["Education"].map(EDUCATION_GROUPS)
     return df
 
 
