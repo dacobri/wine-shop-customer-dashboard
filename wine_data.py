@@ -114,7 +114,8 @@ def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
     df["Education"] = df["Education"].replace({1: np.nan, "1": np.nan})
 
     df["monthly_visits"]     = df["Wine frequency consumption"].map(FREQ_VISITS_PER_MONTH).fillna(1)
-    df["est_annual_revenue"] = df["Ticket"] * df["monthly_visits"] * 12
+    df["monthly_spend"]      = df["Ticket"] * df["monthly_visits"]
+    df["est_annual_revenue"] = df["monthly_spend"] * 12
     df["deli_tier"]          = df["Additional products"].apply(_classify_deli)
     df["social_score"]       = df["Place to drink"].map(SOCIAL_MAP).fillna(4)
     df["Education_group"]    = df["Education"].map(EDUCATION_GROUPS)

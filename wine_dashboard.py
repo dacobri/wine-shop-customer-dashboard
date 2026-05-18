@@ -109,17 +109,20 @@ def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
 
     st.markdown("---")
 
-    # ── Section C: How they spend (filter-aware) ───────────────────────────
-    st.markdown("### C. How they spend — basket size by education tier")
-    _profile_ticket_by_education(df_f)
+    # ── Section C: Monthly spending patterns (filter-aware) ────────────────
+    st.markdown("### C. How they spend — monthly spending patterns")
+    st.caption("Monthly spend = ticket × visits per month. A daily €20 drinker "
+               "(€600/mo) is worth more than a monthly €80 drinker (€80/mo). "
+               "This is the dimension that matters for revenue.")
+    _profile_spending_patterns(df_f)
 
     st.markdown("---")
 
-    # ── Section D: What connects (filter-aware) ────────────────────────────
-    st.markdown("### D. What connects — relationship strength map")
-    st.caption("Cramér's V quantifies association between categorical variables. "
-               "Higher values (darker) = stronger relationship.")
-    _profile_cramers_v_heatmap(df_f)
+    # ── Section D: Strongest relationships (filter-aware) ──────────────────
+    st.markdown("### D. What connects — strongest relationships in the data")
+    st.caption("Cramér's V ranks how strongly each pair of customer attributes "
+               "moves together. Higher = stronger pattern worth acting on.")
+    _profile_relationship_strengths(df_f)
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────
@@ -332,53 +335,149 @@ def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) ->
         st.info(f"ℹ️ {fallback_note}")
 
 
-# ── Section C: Ticket × Education boxplot ─────────────────────────────────
+# ── Section C: Monthly spending patterns ──────────────────────────────────
 
-def _profile_ticket_by_education(df: pd.DataFrame) -> None:
-    """Boxplot of Ticket grouped by 4-tier Education. Filter-aware."""
+def _profile_spending_patterns(df: pd.DataFrame) -> None:
+    """Three-part view of monthly spending: KPI strip + 2 demographic heatmaps.
+
+    Why monthly (not per-visit ticket)? A daily €20 drinker generates
+    €600/mo of revenue; a once-a-month €80 drinker generates €80/mo. The
+    same per-visit ticket can hide a 7× difference in revenue contribution.
+    """
     work = df.dropna(subset=["Education_group"]).copy()
-    if len(work) == 0:
-        st.info("No customers with Education data in current filter.")
+    if len(work) < 10:
+        st.info("Too few customers in current filter to compute reliable spending patterns.")
         return
 
-    fig = px.box(
-        work, x="Education_group", y="Ticket",
-        category_orders={"Education_group": EDUCATION_GROUP_ORDER},
-        color="Education_group",
-        color_discrete_map={
-            "Basic":        PALETTE["burgundy"],
-            "Technical":    PALETTE["merlot"],
-            "University":   PALETTE["gold"],
-            "Postgraduate": PALETTE["teal"],
-        },
-        points="outliers",
-    )
-    fig.update_layout(base_layout(
-        title="Basket distribution by education tier",
-        height=380, showlegend=False,
-        xaxis=dict(title=""), yaxis=dict(title="Ticket (€)"),
-    ))
-    st.plotly_chart(fig, use_container_width=True)
+    # ── KPI strip ──
+    avg_monthly = work["monthly_spend"].mean()
+    median_monthly = work["monthly_spend"].median()
+    sorted_spend = work["monthly_spend"].sort_values(ascending=False)
+    n_top20 = max(1, int(len(sorted_spend) * 0.2))
+    top20_share = sorted_spend.iloc[:n_top20].sum() / sorted_spend.sum() * 100
+    top_decile_threshold = sorted_spend.iloc[max(1, int(len(sorted_spend) * 0.1)) - 1]
 
-    means = work.groupby("Education_group", observed=True)["Ticket"].mean().round(0)
-    means = means.reindex(EDUCATION_GROUP_ORDER).dropna()
+    k1, k2, k3 = st.columns(3)
+    k1.markdown(kpi_card("Avg monthly spend", f"{avg_monthly:.0f}", "€"),
+                unsafe_allow_html=True)
+    k2.markdown(kpi_card("Top 20% of customers", f"{top20_share:.0f}% of revenue"),
+                unsafe_allow_html=True)
+    k3.markdown(kpi_card("Top decile threshold", f"{top_decile_threshold:.0f}+/mo", "€"),
+                unsafe_allow_html=True)
+
+    st.markdown("&nbsp;", unsafe_allow_html=True)
+
+    # ── Heatmap 1: Gender × Education ──
+    _spending_heatmap(
+        work, row_col="Gender", col_col="Education_group",
+        row_order=sorted(work["Gender"].unique()),
+        col_order=EDUCATION_GROUP_ORDER,
+        title="Avg monthly spend per customer · Gender × Education tier",
+        height=320,
+    )
+
+    # Compute insight for the callout
+    means = (work.groupby(["Gender", "Education_group"], observed=True)["monthly_spend"]
+                  .mean().round(0))
     if len(means) >= 2:
-        highest_grp, highest_val = means.idxmax(), int(means.max())
-        lowest_grp,  lowest_val  = means.idxmin(), int(means.min())
+        top_idx = means.idxmax(); top_val = int(means.max())
+        bot_idx = means.idxmin(); bot_val = int(means.min())
+        ratio = means.max() / max(means.min(), 1)
         st.markdown(callout(
-            "💸", "Education does not predict basket size",
-            f"<b>{highest_grp}</b>-tier customers average <b>€{highest_val}</b> · "
-            f"<b>{lowest_grp}</b>-tier customers average <b>€{lowest_val}</b>. "
-            f"Education predicts <i>what</i> people buy, not <i>how much</i>. "
-            f"Segmenting offers by spend (FM segments) is more actionable than "
-            f"segmenting by education."
+            "💡", "The most-valuable customer profile may surprise you",
+            f"<b>{top_idx[0]} · {top_idx[1]}-tier</b> customers spend on average "
+            f"<b>€{top_val}/month</b> — {ratio:.1f}× more than the lowest cell, "
+            f"<b>{bot_idx[0]} · {bot_idx[1]}-tier</b> at <b>€{bot_val}/month</b>. "
+            f"Education does <b>not</b> linearly correlate with monthly spend — "
+            f"in fact the relationship is roughly inverted, especially for women. "
+            f"Marketing copy assuming 'university-educated = high-value' is wrong "
+            f"for this customer base."
+        ), unsafe_allow_html=True)
+
+    st.markdown("&nbsp;", unsafe_allow_html=True)
+
+    # ── Heatmap 2: Age × Education ──
+    _spending_heatmap(
+        work, row_col="Age", col_col="Education_group",
+        row_order=AGE_ORDER, col_order=EDUCATION_GROUP_ORDER,
+        title="Avg monthly spend per customer · Age × Education tier",
+        height=360,
+    )
+
+    age_edu = (work.groupby(["Age", "Education_group"], observed=True)["monthly_spend"]
+                    .mean().round(0))
+    if len(age_edu) >= 2:
+        top_idx = age_edu.idxmax(); top_val = int(age_edu.max())
+        st.markdown(callout(
+            "🎯", "Life-stage matters more than diplomas",
+            f"The highest-value cohort is <b>{top_idx[0]} · {top_idx[1]}-tier</b> "
+            f"at <b>€{top_val}/month</b>. Use this matrix when designing direct "
+            f"marketing — combine age band and education tier to target individual "
+            f"cells, not whole demographic dimensions."
         ), unsafe_allow_html=True)
 
 
-# ── Section D: Cramér's V heatmap ─────────────────────────────────────────
+def _spending_heatmap(df: pd.DataFrame, row_col: str, col_col: str,
+                      row_order: list, col_order: list, title: str,
+                      height: int = 360) -> None:
+    """Render a single monthly-spend heatmap with cell counts in hover."""
+    means = (df.pivot_table(values="monthly_spend", index=row_col,
+                            columns=col_col, aggfunc="mean")
+                .reindex(index=row_order, columns=col_order))
+    counts = (df.pivot_table(values="monthly_spend", index=row_col,
+                             columns=col_col, aggfunc="count")
+                 .reindex(index=row_order, columns=col_order))
 
-def _profile_cramers_v_heatmap(df: pd.DataFrame) -> None:
-    """Pairwise Cramér's V across categorical variables. Filter-aware."""
+    # Cell text: "€NNN" when populated; counts go to hover.
+    text = means.map(lambda v: f"€{int(v):,}" if pd.notna(v) else "").values
+    hover = []
+    for i, r in enumerate(means.index):
+        row = []
+        for j, c in enumerate(means.columns):
+            mv = means.iloc[i, j]
+            cnt = counts.iloc[i, j]
+            if pd.notna(mv):
+                row.append(f"<b>{r}</b> × <b>{c}</b><br>"
+                           f"Avg monthly spend: €{int(mv):,}<br>"
+                           f"n = {int(cnt)} customer{'s' if cnt != 1 else ''}")
+            else:
+                row.append(f"<b>{r}</b> × <b>{c}</b><br>(no customers)")
+        hover.append(row)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=means.values,
+        x=list(means.columns),
+        y=list(means.index),
+        text=text,
+        texttemplate="%{text}",
+        textfont={"size": 13, "color": PALETTE["charcoal"]},
+        hovertext=hover,
+        hoverinfo="text",
+        colorscale=[
+            [0.0, PALETTE["cream"]],
+            [0.5, PALETTE["gold"]],
+            [1.0, PALETTE["burgundy"]],
+        ],
+        colorbar=dict(title="€/month"),
+        zmin=0,
+    ))
+    fig.update_layout(base_layout(
+        title=title, height=height,
+        xaxis=dict(side="bottom", title=""),
+        yaxis=dict(title="", autorange="reversed"),  # keep natural top-to-bottom order
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ── Section D: Ranked categorical relationships ───────────────────────────
+
+def _profile_relationship_strengths(df: pd.DataFrame) -> None:
+    """Top-10 strongest categorical pairs ranked by Cramér's V.
+
+    Replaces the previous heatmap: the values cluster in 0.06–0.27 which
+    compress into the bottom of the color scale and the eye has to scan
+    42 cells. A ranked bar surfaces the takeaway in one glance.
+    """
     from scipy.stats import chi2_contingency
 
     def _cramers_v(x, y):
@@ -394,17 +493,6 @@ def _profile_cramers_v_heatmap(df: pd.DataFrame) -> None:
 
     cats = ["Gender", "Age", "Education_group", "Wine frequency consumption",
             "Place to drink", "Additional products", "Payment mode"]
-    work = df.dropna(subset=["Education_group"])
-    if len(work) < 10:
-        st.info("Too few customers in current filter to compute reliable associations.")
-        return
-
-    mat = pd.DataFrame(index=cats, columns=cats, dtype=float)
-    for a in cats:
-        for b in cats:
-            mat.loc[a, b] = np.nan if a == b else _cramers_v(work[a], work[b])
-
-    # Friendlier short labels
     short = {
         "Wine frequency consumption": "Frequency",
         "Place to drink":              "Occasion",
@@ -412,37 +500,57 @@ def _profile_cramers_v_heatmap(df: pd.DataFrame) -> None:
         "Education_group":             "Education",
         "Payment mode":                "Payment",
     }
-    pretty = [short.get(c, c) for c in cats]
-    mat.index = pretty
-    mat.columns = pretty
 
-    fig = px.imshow(
-        mat, text_auto=".2f", aspect="auto",
-        color_continuous_scale=[
-            [0.0, PALETTE["cream"]],
-            [0.5, PALETTE["gold"]],
-            [1.0, PALETTE["burgundy"]],
-        ],
-        zmin=0, zmax=0.4,
-        labels=dict(color="Cramér's V"),
-    )
+    work = df.dropna(subset=["Education_group"])
+    if len(work) < 10:
+        st.info("Too few customers in current filter to compute reliable associations.")
+        return
+
+    pairs = []
+    for i, a in enumerate(cats):
+        for b in cats[i + 1:]:
+            v = _cramers_v(work[a], work[b])
+            if not np.isnan(v):
+                pairs.append((f"{short.get(a, a)} × {short.get(b, b)}", v))
+    pairs.sort(key=lambda p: -p[1])
+
+    top_n = min(10, len(pairs))
+    top = pairs[:top_n]
+    labels  = [p[0] for p in top][::-1]   # reversed so strongest sits at the top of the bar
+    values  = [p[1] for p in top][::-1]
+
+    # Burgundy emphasis on the strongest pair, teal for the rest
+    max_v = max(values) if values else 1
+    colors = [PALETTE["burgundy"] if v == max_v else PALETTE["teal"] for v in values]
+
+    fig = go.Figure(go.Bar(
+        y=labels, x=values, orientation="h",
+        marker_color=colors,
+        text=[f"V = {v:.2f}" for v in values],
+        textposition="outside",
+        hovertemplate="<b>%{y}</b><br>Cramér's V = %{x:.3f}<extra></extra>",
+    ))
     fig.update_layout(base_layout(
-        title=f"Relationship strength map · {len(work)} customers",
-        height=470, xaxis=dict(side="bottom"),
+        title=f"Top {top_n} categorical relationships · {len(work)} customers",
+        height=460, showlegend=False,
+        xaxis=dict(title="Cramér's V  (0 = independent, 1 = perfect dependence)",
+                   range=[0, max_v * 1.25]),
+        yaxis=dict(title=""),
     ))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Surface the top-3 strongest off-diagonal pairs
-    upper = mat.where(np.triu(np.ones(mat.shape, dtype=bool), k=1))
-    top3 = upper.stack().dropna().sort_values(ascending=False).head(3)
-    pair_strings = [f"<b>{a}</b> × <b>{b}</b> (V={v:.2f})"
-                    for (a, b), v in top3.items()]
-    if pair_strings:
+    if len(pairs) >= 3:
         st.markdown(callout(
-            "🧭", "Strongest relationships in the data",
-            " · ".join(pair_strings) + ". Darker cells = stronger association. "
-            "Payment mode shows the weakest links overall — confirming the "
-            "decision to drop it as a filter dimension."
+            "🧭", "What the ranking tells us",
+            f"<b>{pairs[0][0]}</b> (V={pairs[0][1]:.2f}) and "
+            f"<b>{pairs[1][0]}</b> (V={pairs[1][1]:.2f}) are the two clearest "
+            f"signals in the data — those are the patterns worth designing campaigns "
+            f"around. The weakest associations involve <b>Payment mode</b>, "
+            f"confirming the earlier decision to drop it as a filter dimension. "
+            f"Even the strongest values stay in the 'moderate' range (V≈0.27), "
+            f"meaning no single demographic dimension fully predicts customer behavior — "
+            f"the FM and behavioral segmentations on other tabs combine multiple "
+            f"signals to get a sharper view."
         ), unsafe_allow_html=True)
 
 
