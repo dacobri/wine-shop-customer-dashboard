@@ -118,10 +118,16 @@ def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
 
     st.markdown("---")
 
-    # ── Section D: Strongest relationships (filter-aware) ──────────────────
-    st.markdown("### D. What connects — strongest relationships in the data")
-    st.caption("Cramér's V ranks how strongly each pair of customer attributes "
-               "moves together. Higher = stronger pattern worth acting on.")
+    # ── Section D: Hidden patterns / transition to segmentation ────────────
+    st.markdown("### D. Hidden patterns — which customer attributes go together?")
+    st.caption(
+        "Each bar shows how strongly two customer attributes predict each "
+        "other on a 0–100 scale. A high score means knowing one attribute "
+        "(say, gender) tells you something useful about the other (drinking "
+        "occasion). These hidden links are exactly why we segment customers "
+        "by behaviour and revenue on the next tabs rather than by any single "
+        "demographic."
+    )
     _profile_relationship_strengths(df_f)
 
 
@@ -230,10 +236,21 @@ def _profile_population_pyramid(df: pd.DataFrame) -> None:
 
 # ── Section A.2: Education funnel ─────────────────────────────────────────
 
+# What the 9 survey levels collapse into. Used in tooltips so the manager
+# can see exactly which raw responses ended up in each bucket.
+EDUCATION_BUCKET_CONTENTS = {
+    "Basic":        "Primary · Secondary Unfinished · Secondary",
+    "Technical":    "Technical Superior Unfinished · Technical Superior",
+    "University":   "Universitary Degree Unfinished · Universitary Degree",
+    "Postgraduate": "Postgraduate Unfinished · Postgraduate",
+}
+
+
 def _profile_education_funnel(df: pd.DataFrame) -> None:
     """Horizontal bar of the 4 education tiers, sorted by count (largest first).
 
-    Per the professor's "sort by value, never alphabetical" principle.
+    Hovering a bar reveals the raw survey levels that roll up into the tier,
+    so the manager can verify what 'Basic' or 'Technical' really mean.
     """
     counts = (df["Education_group"].dropna()
                 .value_counts()
@@ -247,12 +264,18 @@ def _profile_education_funnel(df: pd.DataFrame) -> None:
     colors = [PALETTE["burgundy"] if v == counts.max() else PALETTE["teal"]
               for v in counts.values]
 
+    hover = [
+        f"<b>{tier}</b><br>{c} customers ({p}%)"
+        f"<br><i>Includes:</i> {EDUCATION_BUCKET_CONTENTS.get(tier, '')}"
+        for tier, c, p in zip(counts.index, counts.values, pct.values)
+    ]
+
     fig = go.Figure(go.Bar(
         y=counts.index, x=counts.values, orientation="h",
         marker_color=colors,
         text=[f"{c}  ({p}%)" for c, p in zip(counts.values, pct.values)],
         textposition="outside",
-        hovertemplate="<b>%{y}</b><br>%{x} customers<extra></extra>",
+        hovertext=hover, hoverinfo="text",
     ))
     fig.update_layout(base_layout(
         title="Education tiers — 4 grouped levels",
@@ -261,6 +284,7 @@ def _profile_education_funnel(df: pd.DataFrame) -> None:
         yaxis=dict(title=""),
     ))
     st.plotly_chart(fig, use_container_width=True)
+    st.caption("🛈 Hover any bar to see the raw survey levels that roll up into the tier.")
 
 
 # ── Section B: Diverging Gender × Place ───────────────────────────────────
@@ -367,6 +391,11 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
 
     st.markdown("&nbsp;", unsafe_allow_html=True)
 
+    # Education-bucket reminder (kept close to the two heatmaps that use it)
+    with st.expander("🛈 What's in each education tier?"):
+        for tier in EDUCATION_GROUP_ORDER:
+            st.caption(f"**{tier}** — {EDUCATION_BUCKET_CONTENTS[tier]}")
+
     # ── Heatmap 1: Gender × Education ──
     _spending_heatmap(
         work, row_col="Gender", col_col="Education_group",
@@ -429,7 +458,12 @@ def _spending_heatmap(df: pd.DataFrame, row_col: str, col_col: str,
                  .reindex(index=row_order, columns=col_order))
 
     # Cell text: "€NNN" when populated; counts go to hover.
-    text = means.map(lambda v: f"€{int(v):,}" if pd.notna(v) else "").values
+    # IMPORTANT: use round() not int() — int() truncates, which would make
+    # cell labels disagree with the rounded averages used in the callouts.
+    text = means.map(lambda v: f"€{int(round(v)):,}" if pd.notna(v) else "").values
+    extra_hint = ""
+    if col_col == "Education_group":
+        extra_hint = "<br><i>Education tiers: hover the funnel above for tier contents.</i>"
     hover = []
     for i, r in enumerate(means.index):
         row = []
@@ -438,8 +472,9 @@ def _spending_heatmap(df: pd.DataFrame, row_col: str, col_col: str,
             cnt = counts.iloc[i, j]
             if pd.notna(mv):
                 row.append(f"<b>{r}</b> × <b>{c}</b><br>"
-                           f"Avg monthly spend: €{int(mv):,}<br>"
-                           f"n = {int(cnt)} customer{'s' if cnt != 1 else ''}")
+                           f"Avg monthly spend: €{int(round(mv)):,}<br>"
+                           f"n = {int(cnt)} customer{'s' if cnt != 1 else ''}"
+                           f"{extra_hint}")
             else:
                 row.append(f"<b>{r}</b> × <b>{c}</b><br>(no customers)")
         hover.append(row)
@@ -472,11 +507,12 @@ def _spending_heatmap(df: pd.DataFrame, row_col: str, col_col: str,
 # ── Section D: Ranked categorical relationships ───────────────────────────
 
 def _profile_relationship_strengths(df: pd.DataFrame) -> None:
-    """Top-10 strongest categorical pairs ranked by Cramér's V.
+    """Top categorical attribute pairs, scored 0–100 for non-statisticians.
 
-    Replaces the previous heatmap: the values cluster in 0.06–0.27 which
-    compress into the bottom of the color scale and the eye has to scan
-    42 cells. A ranked bar surfaces the takeaway in one glance.
+    The score under the hood is Cramér's V × 100 — we keep the math
+    but never expose the term. The 0–100 framing is what the manager
+    will actually use. The chart's purpose is to set up the segmentation
+    tabs: 'no single attribute explains everything → that's why we segment'.
     """
     from scipy.stats import chi2_contingency
 
@@ -501,23 +537,61 @@ def _profile_relationship_strengths(df: pd.DataFrame) -> None:
         "Payment mode":                "Payment",
     }
 
+    # Marketing translations of what each top pair means in plain English.
+    pair_meanings = {
+        ("Gender", "Place to drink"):
+            "Men and women drink in different settings — design in-store displays "
+            "and bundle promotions that reflect each gender's preferred occasions.",
+        ("Age", "Additional products"):
+            "Each age cohort has a different favourite deli pairing — bundle by "
+            "age band, not by spend alone.",
+        ("Education_group", "Payment mode"):
+            "Education tier predicts payment habits — useful when calibrating "
+            "loyalty-card incentives.",
+        ("Education_group", "Additional products"):
+            "Education tier shapes deli choice — informs which products to "
+            "showcase in targeted promotions.",
+        ("Age", "Education_group"):
+            "Age and education co-vary in this base — expected; combining the "
+            "two adds little extra signal.",
+        ("Place to drink", "Payment mode"):
+            "Occasion shapes how customers pay — useful when planning point-of-sale "
+            "experience for high-traffic occasions.",
+        ("Gender", "Age"):
+            "Mild gender skew across age bands — moderate input for cohort-specific "
+            "campaigns.",
+        ("Age", "Place to drink"):
+            "Each age cohort drinks in different settings — calibrate occasion "
+            "campaigns by life stage.",
+        ("Wine frequency consumption", "Place to drink"):
+            "Frequent and casual drinkers go to different occasions — useful for "
+            "matching loyalty perks to behaviour.",
+        ("Place to drink", "Additional products"):
+            "Each occasion has a different deli companion — the basis for "
+            "'tonight's pairing' shelf-talkers.",
+    }
+
     work = df.dropna(subset=["Education_group"])
     if len(work) < 10:
-        st.info("Too few customers in current filter to compute reliable associations.")
+        st.info("Too few customers in current filter to compute reliable patterns.")
         return
 
-    pairs = []
+    pairs = []   # list of (display_label, score_0_100, key_tuple)
     for i, a in enumerate(cats):
         for b in cats[i + 1:]:
             v = _cramers_v(work[a], work[b])
             if not np.isnan(v):
-                pairs.append((f"{short.get(a, a)} × {short.get(b, b)}", v))
+                pairs.append((
+                    f"{short.get(a, a)} × {short.get(b, b)}",
+                    v * 100,
+                    (a, b),
+                ))
     pairs.sort(key=lambda p: -p[1])
 
     top_n = min(10, len(pairs))
     top = pairs[:top_n]
-    labels  = [p[0] for p in top][::-1]   # reversed so strongest sits at the top of the bar
-    values  = [p[1] for p in top][::-1]
+    labels = [p[0] for p in top][::-1]   # reversed → strongest sits at the top
+    values = [p[1] for p in top][::-1]
 
     # Burgundy emphasis on the strongest pair, teal for the rest
     max_v = max(values) if values else 1
@@ -526,32 +600,43 @@ def _profile_relationship_strengths(df: pd.DataFrame) -> None:
     fig = go.Figure(go.Bar(
         y=labels, x=values, orientation="h",
         marker_color=colors,
-        text=[f"V = {v:.2f}" for v in values],
+        text=[f"{v:.0f}" for v in values],
         textposition="outside",
-        hovertemplate="<b>%{y}</b><br>Cramér's V = %{x:.3f}<extra></extra>",
+        hovertemplate="<b>%{y}</b><br>Pattern score: %{x:.0f}/100<extra></extra>",
     ))
     fig.update_layout(base_layout(
-        title=f"Top {top_n} categorical relationships · {len(work)} customers",
+        title=f"Strongest hidden patterns · {len(work)} customers",
         height=460, showlegend=False,
-        xaxis=dict(title="Cramér's V  (0 = independent, 1 = perfect dependence)",
-                   range=[0, max_v * 1.25]),
+        xaxis=dict(title="Pattern score (0 = no connection, 100 = perfectly linked)",
+                   range=[0, max_v * 1.30]),
         yaxis=dict(title=""),
     ))
     st.plotly_chart(fig, use_container_width=True)
 
-    if len(pairs) >= 3:
-        st.markdown(callout(
-            "🧭", "What the ranking tells us",
-            f"<b>{pairs[0][0]}</b> (V={pairs[0][1]:.2f}) and "
-            f"<b>{pairs[1][0]}</b> (V={pairs[1][1]:.2f}) are the two clearest "
-            f"signals in the data — those are the patterns worth designing campaigns "
-            f"around. The weakest associations involve <b>Payment mode</b>, "
-            f"confirming the earlier decision to drop it as a filter dimension. "
-            f"Even the strongest values stay in the 'moderate' range (V≈0.27), "
-            f"meaning no single demographic dimension fully predicts customer behavior — "
-            f"the FM and behavioral segmentations on other tabs combine multiple "
-            f"signals to get a sharper view."
-        ), unsafe_allow_html=True)
+    # Build a small explanatory callout: top 2 pairs translated into
+    # marketing actions, plus the transition to segmentation.
+    if len(pairs) >= 2:
+        top1_label, top1_score, top1_key = pairs[0]
+        top2_label, top2_score, top2_key = pairs[1]
+        def _meaning(k):
+            return (pair_meanings.get(k)
+                    or pair_meanings.get((k[1], k[0]))
+                    or "Worth investigating with targeted campaigns.")
+        bullet1 = f"<b>{top1_label}</b> ({top1_score:.0f}/100) — {_meaning(top1_key)}"
+        bullet2 = f"<b>{top2_label}</b> ({top2_score:.0f}/100) — {_meaning(top2_key)}"
+
+        body = (
+            f"<b>What this means in plain English:</b><br>"
+            f"&bull; {bullet1}<br>"
+            f"&bull; {bullet2}<br><br>"
+            f"Even the strongest pair scores only ~{int(round(top1_score))}/100 — "
+            f"<b>no single customer attribute predicts everything.</b> That's the "
+            f"whole reason this dashboard segments customers on the next tabs: "
+            f"combining several signals at once (frequency, spend, occasion) "
+            f"produces customer groups that single attributes never could."
+        )
+        st.markdown(callout("🧭", "How to read this chart", body),
+                    unsafe_allow_html=True)
 
 
 def render_segments(df_f: pd.DataFrame) -> None:
