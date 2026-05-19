@@ -16,7 +16,7 @@ Two audiences. One repo. No duplicates.
 
 | If you're the… | Start with… |
 |---|---|
-| **Wine shop manager** (client) | [📄 `deliverables/Wine_Shop_Executive_Report.pdf`](deliverables/Wine_Shop_Executive_Report.pdf) (5-page exec summary), then the [live dashboard](https://wine-shop-customer-dashboard-group3.streamlit.app), then [`MANAGER_GUIDE.md`](MANAGER_GUIDE.md) for usage tips. |
+| **Wine shop manager** (client) | [📄 `deliverables/Wine_Shop_Executive_Report.pdf`](deliverables/Wine_Shop_Executive_Report.pdf) (5-page exec summary), then the [live dashboard](https://wine-shop-customer-dashboard-group3.streamlit.app). A polished `Manager_Guide.pdf` walkthrough ships with the submission zip (`AP_A1_Group3/For_Client/`) rather than living in this repo. |
 | **Professor / grader** | This README first (you're already here ✅), then the source code in `app/`, then [`notebooks/EDA_Wine_Consumption.ipynb`](notebooks/EDA_Wine_Consumption.ipynb), then [`docs/`](docs/) for the case brief and the team's preliminary strategy report. |
 
 ---
@@ -26,7 +26,6 @@ Two audiences. One repo. No duplicates.
 ```
 wine_app/
 ├── README.md                          ← you are here
-├── MANAGER_GUIDE.md                   ← non-technical dashboard walkthrough
 ├── LICENSE                            ← MIT
 ├── requirements.txt                   ← pinned dependencies
 ├── runtime.txt                        ← Python 3.11 hint for Streamlit Cloud
