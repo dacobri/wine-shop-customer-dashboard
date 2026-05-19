@@ -68,6 +68,20 @@ inject_css()
 # TAB RENDERERS
 # ============================================================================
 
+def _next_tab_hint(text: str) -> None:
+    """Small italic hand-off line at the bottom of each tab, so each view
+    introduces the next one and the narrative feels continuous rather than
+    seven disconnected sections."""
+    st.markdown(
+        f"<div style='margin-top:24px; padding:10px 14px; "
+        f"border-left:3px solid {PALETTE['gold']}; "
+        f"background:{PALETTE['cream']}; "
+        f"color:{PALETTE['midgray']}; font-style:italic; font-size:13px; "
+        f"border-radius:4px;'>→ {text}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
     """Customer Profile tab — 4-section narrative arc.
 
@@ -1552,23 +1566,72 @@ def main() -> None:
         st.warning("No customers match the current filters — widen them in the sidebar.")
         st.stop()
 
+    # ─── New 6-tab narrative arc (May 2026 reorder) ───────────────────────
+    #
+    # The journey: who they are → how they group by revenue → how they group
+    # by behaviour and spend → what they buy → synthesis + projection →
+    # prioritised action.
+    #
+    # Customer Explorer is no longer a top-level tab — it lives as a
+    # collapsed expander at the bottom of the Customer Profile tab (since
+    # drilling from aggregate profile down to individuals is the natural
+    # continuation of that tab's content).
     tabs = st.tabs([
-        "👥 Customer Profile",
-        "🎯 FM Segments",
-        "🔬 Behavioral Segments",
-        "🧀 Product Mix",
-        "📋 Action Plan",
-        "🔎 Explorer",
-        "📊 Strategic Overview",
+        "👥 Customer Profile",      # who they are (+ explorer)
+        "🎯 FM Segments",           # group by revenue value
+        "🔬 Behavioral Segments",   # two ML lenses (behavioral + spend tiers)
+        "🧀 Product Mix",           # what they buy
+        "📊 Strategic Overview",    # synthesis + What-If simulator
+        "📋 Action Plan",           # the close — what to do
     ])
 
-    with tabs[0]: render_profile(df_f, df)
-    with tabs[1]: render_segments(df_f)
-    with tabs[2]: render_behavioral(df_f)
-    with tabs[3]: render_products(df_f)
-    with tabs[4]: render_actions(df_f)
-    with tabs[5]: render_explorer(df_f)
-    with tabs[6]: render_overview(df_f)
+    with tabs[0]:
+        render_profile(df_f, df)
+        # Customer Explorer absorbed here as a collapsed bottom expander
+        # (drilling from aggregate profile down to individuals is a natural
+        # continuation of this tab's content).
+        st.markdown("---")
+        with st.expander("🔎 Drill into individual customers — Customer Explorer"):
+            render_explorer(df_f)
+        _next_tab_hint(
+            "Now that we know who walks through the door, the next tab — "
+            "<b>🎯 FM Segments</b> — groups these customers by revenue value "
+            "(frequency × monetary)."
+        )
+    with tabs[1]:
+        render_segments(df_f)
+        _next_tab_hint(
+            "FM uses a deterministic median split. The next tab — "
+            "<b>🔬 Behavioral Segments</b> — lets the data group customers "
+            "without any rules, using two complementary unsupervised lenses "
+            "(behavioral archetypes + spend tiers)."
+        )
+    with tabs[2]:
+        render_behavioral(df_f)
+        _next_tab_hint(
+            "Three lenses on the same 404 customers. The next tab — "
+            "<b>🧀 Product Mix</b> — steps away from segmentation to look at "
+            "what customers actually buy, and where the cross-sell gap sits."
+        )
+    with tabs[3]:
+        render_products(df_f)
+        _next_tab_hint(
+            "With the customer base understood from every angle, the next "
+            "tab — <b>📊 Strategic Overview</b> — pulls back to the headline "
+            "numbers and lets you project the revenue impact of strategic "
+            "actions via the What-If simulator."
+        )
+    with tabs[4]:
+        render_overview(df_f)
+        _next_tab_hint(
+            "The simulator shows what <i>could</i> change. The final tab — "
+            "<b>📋 Action Plan</b> — translates these levers into specific, "
+            "prioritised actions per segment."
+        )
+    with tabs[5]:
+        render_actions(df_f)
+        # Last tab — no further hand-off; render_actions already ends with its
+        # own cross-cutting priority callout.
 
 
 if __name__ == "__main__":

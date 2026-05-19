@@ -97,13 +97,12 @@ The free tier sleeps the app after 7 days of inactivity — clicking the URL wak
 
 | Tab | What it answers |
 |---|---|
-| 👥 **Customer Profile** | Who walks through the door? (demographics, gender × occasion signal, three spending heatmaps, hidden attribute relationships) |
-| 🎯 **Market Segments (FM)** | Which segment is worth what? |
-| 🤖 **ML Clustering** | Two togglable lenses: behavioral archetypes (default) and spend tiers |
-| 🧀 **Product Mix** | Where's the cross-sell opportunity? |
-| 📋 **Action Plan** | Prioritised marketing playbook by segment |
-| 🔎 **Customer Explorer** | Filterable table for individual outreach lists (CSV export) |
-| 📊 **Strategic Overview** | The full picture + interactive What-If revenue simulator |
+| 👥 **Customer Profile** | Who walks through the door? Demographics, gender × occasion signal, three spending heatmaps, hidden attribute relationships, **and an embedded Customer Explorer expander at the bottom** for filterable individual outreach lists (CSV export). |
+| 🎯 **FM Segments** | Which segment is worth what? Champions / Loyal Regulars / Occasion Splurgers / Casual Visitors. |
+| 🔬 **Behavioral Segments** | Two togglable ML lenses: behavioral archetypes (K-Means, default) and spend tiers (K-Prototypes). |
+| 🧀 **Product Mix** | Where's the cross-sell opportunity? The delicatessen gap. |
+| 📊 **Strategic Overview** | Synthesis — headline KPIs + the interactive What-If revenue simulator. |
+| 📋 **Action Plan** | The close — prioritised marketing playbook by segment. |
 
 ---
 
