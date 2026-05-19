@@ -23,7 +23,8 @@ import streamlit as st
 # Constants — domain knowledge about the dataset
 # --------------------------------------------------------------------------
 
-DATA_PATH = Path(__file__).parent / "5. Wine consumption.xlsx"
+# Data lives in repo_root/data/, one level up from this file (repo_root/app/).
+DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "wine_consumption_survey.xlsx"
 
 # Map verbal frequency categories to a numeric visits-per-month estimate
 # (midpoint of each verbal range). Used for FM segmentation and annual
