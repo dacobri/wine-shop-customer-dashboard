@@ -429,7 +429,34 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
 
     st.markdown("&nbsp;", unsafe_allow_html=True)
 
-    # ── Heatmap 2: Age × Drinking occasion ──
+    # ── Heatmap 2: Age × Education ──
+    # Reveals life-stage × class spending patterns. Combined with Heatmap 1,
+    # gives the manager both the gender and age dimension of the education
+    # signal — useful for cohort-targeted email / WhatsApp campaigns.
+    _spending_heatmap(
+        work, row_col="Age", col_col="Education_group",
+        row_order=AGE_ORDER, col_order=EDUCATION_GROUP_ORDER,
+        title="Avg monthly spend per customer · Age × Education tier",
+        height=360,
+    )
+
+    age_edu = (work.groupby(["Age", "Education_group"], observed=True)["monthly_spend"]
+                    .mean().round(0))
+    if len(age_edu) >= 2:
+        top_idx = age_edu.idxmax()
+        top_val = int(round(age_edu.max()))
+        st.markdown(callout(
+            "🎯", "Life-stage matters more than diplomas",
+            f"The highest-value (age × education) cohort is "
+            f"<b>{top_idx[0]} · {top_idx[1]}-tier</b> at <b>€{top_val}/month</b>. "
+            f"Use this matrix when designing cohort-specific direct marketing — "
+            f"combine age band and education tier to target individual cells, "
+            f"not whole demographic dimensions."
+        ), unsafe_allow_html=True)
+
+    st.markdown("&nbsp;", unsafe_allow_html=True)
+
+    # ── Heatmap 3: Age × Drinking occasion ──
     # Occasion is the most marketing-actionable dimension — easy to design
     # themed campaigns around (party packs, restaurant pairings, festive
     # bundles). Combined with age band, the cells become directly targetable
@@ -457,9 +484,9 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
             f"<b>{top_idx[0]}-year-olds drinking at {top_idx[1].lower()}</b> "
             f"at <b>€{top_val}/month</b> per customer (n = {top_n}). "
             f"Unlike education or age alone, occasion translates directly into "
-            f"campaign mechanics — themed party packs for the *Parties* cell, "
-            f"gift-ready bundles for *Birthday party*, restaurant wine cards for "
-            f"the *Restaurant* cell, romantic boxes for *With your couple*. "
+            f"campaign mechanics — themed party packs for the <b>Parties</b> cell, "
+            f"gift-ready bundles for <b>Birthday party</b>, restaurant wine cards "
+            f"for the <b>Restaurant</b> cell, romantic boxes for <b>With your couple</b>. "
             f"Build the in-store displays around the strongest cells in this "
             f"matrix, not around demographic averages."
         ), unsafe_allow_html=True)
@@ -1391,11 +1418,41 @@ def render_overview(df_f: pd.DataFrame) -> None:
     rc2.metric("Simulated annual revenue", f"€{sim_rev/1000:.0f}K", f"€{delta/1000:+.0f}K")
     rc3.metric("Uplift", f"{delta_pct:+.1f}%")
 
-    st.caption(
-        "Mechanics: a slice of Casual Visitors is assigned loyal-regular-level visit "
-        "frequency; Loyal Regulars' ticket gets the lift you set; a slice of Loyal "
-        "Regulars adopts Champions-level ticket. Annual revenue = ticket × visits/mo × 12."
-    )
+    with st.expander("📐 How the simulator works · assumptions & formula"):
+        st.markdown(f"""
+**Core formula:** `annual_revenue = ticket × visits_per_month × 12`
+
+**Three combined interventions** (mechanics applied in order):
+
+1. **Convert Casual Visitors → Loyal Regulars** *(top slider)*
+   A randomly-selected share of customers currently in the *Casual Visitors* segment
+   has their `visits_per_month` raised to the **median** visit frequency of the
+   *Loyal Regulars* segment. Their ticket is unchanged. Represents the effect of
+   activation marketing (Instagram, in-store tastings, neighbourhood promotion).
+
+2. **Lift Loyal Regulars' basket** *(middle slider)*
+   Every customer in the *Loyal Regulars* segment has €N added to their
+   `Ticket` value, where N is the slider's value. Represents the "Pair It"
+   deli upsell at the till.
+
+3. **Elevate Loyal Regulars → Champions** *(bottom slider)*
+   A randomly-selected share of customers currently in the *Loyal Regulars*
+   segment has their `Ticket` raised to the **median** ticket of the
+   *Champions* segment. Represents the impact of the loyalty programme
+   (Cave Club membership, premium hamper subscriptions).
+
+**Visits-per-month mapping** (verbal → numeric, midpoint of each band):
+{', '.join(f"*{label}* → {visits}" for label, visits in FREQ_VISITS_PER_MONTH.items())}
+
+**Random seeds** are fixed (seeds 1 and 2 for the two random samples) so the
+projection is deterministic and reproducible for any slider combination.
+
+**This is a directional sensitivity model, not a financial forecast.** It shows
+the order-of-magnitude impact of each intervention rather than a precise
+revenue projection. Read the output as *"if X% of Casual Visitors matched
+Loyal-Regular visit cadence, estimated annual revenue would change by
+approximately €Y."*
+        """)
 
 
 # ============================================================================
@@ -1446,7 +1503,32 @@ def main() -> None:
                 "Built on a 404-customer survey for the Wine Shop & Delicatessen case "
                 "(Advanced Programming with Python — ESADE MSc Business Analytics). "
                 "FM segmentation is the primary revenue lens; behavioral K-Means "
-                "reveals how each group actually buys."
+                "reveals how each group actually buys; K-Prototypes spend tiers "
+                "provide a secondary value-anchored validation."
+            )
+            st.caption(
+                "**Team:** Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · "
+                "Patricia Unger"
+            )
+
+        with st.expander("⚠️ Data caveats"):
+            st.caption(
+                "**Ticket = value per visit (assumed).** The survey gives one ticket "
+                "value per customer; we assume that figure is the customer's *typical* "
+                "basket size on each visit, not a cumulative lifetime total."
+            )
+            st.caption(
+                "**Synthetic / case-study data.** The dataset is the ESADE *Analytics "
+                "and Big Data* case-study sample. Some records contain unrealistic "
+                "combinations (e.g. customers visiting daily and spending €100 every "
+                "time — that's €36,000/year on wine and deli, which is implausible "
+                "for an individual). We surface these as-is rather than clipping, "
+                "but the methodology and segmentation framework are unaffected — "
+                "they would be re-fit on real POS data when available."
+            )
+            st.caption(
+                "**Monthly spend** = `Ticket × visits/month`. **Annual revenue** = "
+                "`monthly_spend × 12`. The visits/month mapping is documented above."
             )
 
     mask = (
