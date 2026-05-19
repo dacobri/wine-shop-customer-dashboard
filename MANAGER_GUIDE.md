@@ -1,7 +1,7 @@
 # 🍷 Manager's Guide to the Dashboard
 
 A one-page, non-technical walkthrough. The dashboard lives at
-**`https://wine-shop-customer-dashboard.streamlit.app`** and opens in
+**`https://wine-shop-customer-dashboard-group3.streamlit.app`** and opens in
 any modern browser. No login required.
 
 **Built by:** Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · Patricia Unger

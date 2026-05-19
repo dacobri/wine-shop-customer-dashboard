@@ -3,7 +3,7 @@
 An interactive Streamlit dashboard turning a 404-customer survey into a
 decision tool for the store manager.
 
-**Live dashboard:** **https://wine-shop-customer-dashboard.streamlit.app**
+**Live dashboard:** **https://wine-shop-customer-dashboard-group3.streamlit.app**
 
 **Team:** Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · Patricia Unger
 **Course:** ESADE MSc Business Analytics · Advanced Programming with Python · May 2026
@@ -16,7 +16,7 @@ Two audiences. One repo. No duplicates.
 
 | If you're the… | Start with… |
 |---|---|
-| **Wine shop manager** (client) | [📄 `deliverables/Wine_Shop_Executive_Report.pdf`](deliverables/Wine_Shop_Executive_Report.pdf) (5-page exec summary), then the [live dashboard](https://wine-shop-customer-dashboard.streamlit.app), then [`MANAGER_GUIDE.md`](MANAGER_GUIDE.md) for usage tips. |
+| **Wine shop manager** (client) | [📄 `deliverables/Wine_Shop_Executive_Report.pdf`](deliverables/Wine_Shop_Executive_Report.pdf) (5-page exec summary), then the [live dashboard](https://wine-shop-customer-dashboard-group3.streamlit.app), then [`MANAGER_GUIDE.md`](MANAGER_GUIDE.md) for usage tips. |
 | **Professor / grader** | This README first (you're already here ✅), then the source code in `app/`, then [`notebooks/EDA_Wine_Consumption.ipynb`](notebooks/EDA_Wine_Consumption.ipynb), then [`docs/`](docs/) for the case brief and the team's preliminary strategy report. |
 
 ---
