@@ -3,22 +3,28 @@ wine_dashboard.py
 =================
 Wine Shop & Delicatessen — Strategic Customer Dashboard.
 
-Tab order (story flow):
-  1. Customer Profile   — who walks through the door?
+Tab order (story flow — May 2026 reorder):
+  1. Customer Profile   — who walks through the door (+ Customer Explorer
+                          embedded as a collapsed expander at the bottom
+                          for individual-level outreach lists)
   2. FM Segments        — who is worth what? (revenue lens)
-  3. Behavioral Segs    — how do they actually buy? (behaviour lens)
+  3. Behavioral Segs    — how do they buy? Two ML lenses (behavioural + spend)
   4. Product Mix        — where is the deli opportunity?
-  5. Action Plan        — what to do, in what order
-  6. Customer Explorer  — individual-level targeting
-  7. Strategic Overview — the full picture + What-If simulator (conclusion)
+  5. Strategic Overview — synthesis + What-If revenue simulator
+  6. Action Plan        — the close: prioritised marketing playbook
+
+The dashboard ships with a root-level shim at wine_app/wine_dashboard.py
+that delegates to this file, so the Streamlit Cloud default entry path
+works without manual configuration.
 
 INSTALL
 -------
-    pip install streamlit plotly pandas numpy scikit-learn openpyxl
+    pip install streamlit plotly pandas numpy scikit-learn kmodes openpyxl
 
 RUN
 ---
-    streamlit run wine_dashboard.py
+    streamlit run wine_dashboard.py        # via the shim (preferred)
+    streamlit run app/wine_dashboard.py    # directly (also works)
 
 Course: Advanced Programming with Python (ESADE MSc Business Analytics)
 """
@@ -42,9 +48,9 @@ from wine_data       import (load_data, compute_fm_segments,
                               FREQ_ORDER, FREQ_VISITS_PER_MONTH, AGE_ORDER,
                               EDUCATION_GROUP_ORDER, SOCIAL_MAP)
 from wine_clustering import (
-    # Behavioral K-Means (Lucas's latest)
+    # Behavioral lens — K-Means K=4 on (frequency, sociality)
     fit_behavioral_clusters, name_behavioral_clusters, behavioral_diagnostics,
-    # K-Prototypes spend tiers (Lucas's earlier work, restored as a second lens)
+    # Value lens — K-Prototypes spend tiers (Entry/Core/Premium)
     fit_clusters, name_clusters_by_spend, spend_tier_diagnostics, KPROTOTYPES_OK,
 )
 from wine_simulator  import simulate_revenue
@@ -848,12 +854,13 @@ def render_segments(df_f: pd.DataFrame) -> None:
 
 
 def _render_spend_tiers_view(df_f: pd.DataFrame) -> None:
-    """K-Prototypes spend-tier clustering (Lucas's earlier work, restored).
+    """Render the K-Prototypes spend-tier clustering view.
 
     Mixed-type clustering: Hamming distance on six categorical features
     (frequency, payment, occasion, deli, gender, age) + Euclidean on
     Ticket. Default K=3 → Entry / Core / Premium spend tiers. Falls back
-    to K-Means on one-hot if the `kmodes` package is unavailable.
+    to K-Means on one-hot encoded features if the `kmodes` package is
+    unavailable, with a visible warning to the user.
     """
     if KPROTOTYPES_OK:
         st.caption(
@@ -873,7 +880,8 @@ def _render_spend_tiers_view(df_f: pd.DataFrame) -> None:
     c1, c2 = st.columns([1, 2])
     with c1:
         k = st.slider("Number of spend tiers (K)", 2, 6, 3,
-                      help="K=3 reproduces Lucas's published Entry/Core/Premium framing.")
+                      help="K=3 produces the canonical Entry / Core / Premium "
+                           "framing used in the executive report.")
         st.info(f"Algorithm: **{'K-Prototypes' if KPROTOTYPES_OK else 'K-Means (fallback)'}**")
 
     # Elbow + silhouette diagnostics
@@ -956,21 +964,29 @@ def _render_spend_tiers_view(df_f: pd.DataFrame) -> None:
         "FM quadrants), spend is doing the heavy lifting in FM and the framework "
         "is solid. A messy cross-tab — like the one above — means FM combines spend "
         "AND frequency, while the spend-tier model only sees spend. <br><br>"
-        "<i>Note:</i> Lucas's later research showed K-Prototypes on this dataset "
-        "mostly rediscovers ticket-anchored tiers because the categorical features "
-        "are uniformly distributed across customers. The behavioral K-Means lens "
-        "(toggle above) was added to find lifestyle archetypes independent of ticket. "
+        "<i>Methodological note:</i> on this dataset K-Prototypes mostly "
+        "rediscovers ticket-anchored tiers, because the categorical features are "
+        "near-uniformly distributed across customers and Ticket is the dominant "
+        "differentiating signal. The behavioural K-Means lens (toggle above) "
+        "was therefore added to find lifestyle archetypes that are independent "
+        "of how much each customer pays per visit. "
         "We keep both because they answer different questions."
     ), unsafe_allow_html=True)
 
 
 def render_behavioral(df_f: pd.DataFrame) -> None:
-    """Two complementary clustering lenses, selected by a radio toggle.
+    """Render the ML Clustering tab — two complementary unsupervised lenses.
 
-    Both views are Lucas's work: the behavioral K-Means is his latest
-    iteration (default), the K-Prototypes spend-tier view is his earlier
-    work — restored here because the two answer genuinely different
-    questions ("how do they buy?" vs "how much do they buy?").
+    A radio toggle at the top selects between:
+      - Behavioural archetypes (K-Means K=4 on frequency × sociality),
+        which answer *how* customers buy and are independent of ticket
+        value (default view).
+      - Spend tiers (K-Prototypes on the full mixed-type feature set),
+        which answer *how much* customers buy and serve as a
+        value-anchored sanity check on the FM segmentation.
+
+    Both lenses coexist because they answer different business questions
+    and the manager benefits from holding both in mind.
     """
     st.subheader("ML Clustering — two complementary lenses on the customer base")
     st.caption(
@@ -990,7 +1006,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
         _render_spend_tiers_view(df_f)
         return
 
-    # ===== Behavioral archetypes view (Lucas's latest, default) ============
+    # ===== Behavioural archetypes view (default) ===========================
     labels = fit_behavioral_clusters(df_f)
     df_b = df_f.copy()
     df_b["beh_id"] = labels

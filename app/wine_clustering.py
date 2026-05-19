@@ -3,19 +3,20 @@ wine_clustering.py
 ==================
 Two complementary unsupervised lenses on the customer base:
 
-1. **Behavioral K-Means** (Lucas's latest work) — K=4 on
-   (visit frequency × sociality score). Produces four named archetypes
-   independent of ticket value: Social Regulars, Daily Home Drinkers,
-   Occasion Celebrants, Casual Home Drinkers.
+1. **Behavioral K-Means** — K=4 on (visit frequency × sociality score).
+   Produces four named archetypes that are independent of ticket value:
+   Social Regulars, Daily Home Drinkers, Occasion Celebrants, Casual
+   Home Drinkers. This is the *behavioural* lens — answers *how* customers
+   buy.
 
-2. **K-Prototypes spend tiers** (Lucas's earlier work, restored as a
-   complementary view) — clusters the mixed-type feature set with
-   Hamming distance on categoricals + Euclidean on Ticket. Produces
-   spend-tier names: Entry / Core / Premium Buyers.
+2. **K-Prototypes spend tiers** — clusters the mixed-type feature set
+   with Hamming distance on categoricals + Euclidean on Ticket. Default
+   K=3 produces spend-tier labels: Entry / Core / Premium Buyers. This is
+   the *value* lens — answers *how much* they buy, and serves as an
+   independent value-anchored sanity check on the FM segmentation.
 
-Both views coexist in the dashboard — the manager toggles between them.
-Behavioral answers "*how* do they buy?", spend tiers answer "*how much*
-do they buy?".
+Both views coexist in the dashboard; the manager toggles between them
+via a radio selector at the top of the ML Clustering tab.
 
 Public API
 ----------
@@ -49,7 +50,7 @@ except ImportError:
 
 
 # ============================================================================
-# Behavioral K-Means (Lucas's latest)
+# Behavioral K-Means lens (primary)
 # ============================================================================
 
 FEATURES = ["monthly_visits", "social_score"]
@@ -98,7 +99,7 @@ def behavioral_diagnostics(df: pd.DataFrame):
 
 
 # ============================================================================
-# K-Prototypes spend-tier clustering (Lucas's earlier work, restored)
+# K-Prototypes spend-tier clustering (complementary value-anchored lens)
 # ============================================================================
 
 CLUSTER_CAT_COLS = ["Wine frequency consumption", "Payment mode", "Place to drink",
