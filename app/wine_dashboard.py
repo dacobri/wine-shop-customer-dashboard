@@ -1162,76 +1162,557 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
 
 
 def render_products(df_f: pd.DataFrame) -> None:
-    st.subheader("Product Mix & Cross-Sell Opportunity")
-    st.caption(
-        "The store is perceived as a wine shop rather than a delicatessen. "
-        "This view diagnoses where the deli is winning and where the gaps are."
+    st.subheader("Customer Behaviour")
+    st.markdown(
+        "<p style='font-size:16px; color:#2B2118; line-height:1.7;'>"
+        "Wine drives footfall, but the deli is where margin and loyalty are built. "
+        "Customers already buy food alongside their wine — the opportunity is in "
+        "making the right products visible to the right people."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+
+    # ── Shared data ────────────────────────────────────────────────────────
+    seg_order = ["Champions", "Loyal Regulars", "Occasion Splurgers", "Casual Visitors"]
+    PREMIUM   = {"Cheese", "Salmon", "Spanish ham"}
+    ENTRY     = {"Olives", "Chocolate", "Candies", "Cookies", "Nuts"}
+
+    df_f = df_f.copy()
+    df_f["deli_tier"] = df_f["Additional products"].apply(
+        lambda x: "Premium" if x in PREMIUM else ("Entry" if x in ENTRY else "Other")
+    )
+    prod = (
+        df_f.groupby("Additional products")
+        .agg(n=("ID", "count"))
+        .reset_index()
+    )
+    prod["penetration_pct"] = prod["n"] / len(df_f) * 100
+    prod["tier"] = prod["Additional products"].apply(
+        lambda x: "Premium" if x in PREMIUM else "Entry"
     )
 
-    # Replace 'Salmond' with 'Salmond*' in displayed copies — see footnote at bottom.
-    df_display = with_salmond_marker(df_f)
+    # ═══════════════════════════════════════════════════════════════════════
+    # BLOCK 1 — Pie + classification cards
+    # ═══════════════════════════════════════════════════════════════════════
+    col_pie, col_key = st.columns([1, 1.4], gap="large")
 
-    c1, c2 = st.columns(2)
-    sold = df_display["Additional products"].value_counts().reset_index()
-    sold.columns = ["Product", "Customers"]
-    fig = px.bar(sold, x="Customers", y="Product", orientation="h",
-                 color="Customers",
-                 color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]])
-    fig.update_layout(base_layout(title="Most popular deli products", height=440,
-                                  coloraxis_showscale=False, yaxis=dict(autorange="reversed")))
-    c1.plotly_chart(fig, use_container_width=True)
+    with col_pie:
+        tier_counts = df_f["deli_tier"].value_counts().reset_index()
+        tier_counts.columns = ["Tier", "Customers"]
+        fig_pie = px.pie(
+            tier_counts, values="Customers", names="Tier",
+            hole=0.58, color="Tier",
+            color_discrete_map={"Premium": PALETTE["burgundy"], "Entry": PALETTE["gold"]},
+        )
+        fig_pie.update_traces(
+            textinfo="percent+label",
+            textfont=dict(size=15, family="Georgia, serif"),
+            pull=[0.03, 0.03],
+        )
+        fig_pie.update_layout(
+            base_layout(title="Premium vs Entry deli split", height=360, showlegend=False),
+            annotations=[dict(
+                text=f"<b>{len(df_f)}</b><br>customers",
+                x=0.5, y=0.5,
+                font=dict(size=15, color=PALETTE["charcoal"]),
+                showarrow=False,
+            )],
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    tier = df_f["deli_tier"].value_counts().reset_index()
-    tier.columns = ["Tier", "Customers"]
-    fig = px.pie(tier, values="Customers", names="Tier", hole=0.55,
-                 color="Tier",
-                 color_discrete_map={
-                     "Premium": PALETTE["merlot"],
-                     "Entry":   PALETTE["gold"],
-                     "Other":   PALETTE["teal"],
-                 })
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(base_layout(title="Premium vs Entry deli split", height=440))
-    c2.plotly_chart(fig, use_container_width=True)
+    with col_key:
+        prem_n    = int((df_f["deli_tier"] == "Premium").sum())
+        entry_n   = int((df_f["deli_tier"] == "Entry").sum())
+        prem_pct  = prem_n  / len(df_f) * 100
+        entry_pct = entry_n / len(df_f) * 100
 
-    premium_share = (df_f["deli_tier"] == "Premium").mean() * 100
+        st.markdown(
+            f"""
+            <div style='margin-top:20px; display:flex; flex-direction:column; gap:12px;'>
+              <div style='background:white; border-radius:12px; border:1px solid #E2D8D6;
+                          border-left:5px solid {PALETTE["burgundy"]}; padding:18px 22px;'>
+                <p style='margin:0 0 4px; font-size:13px; color:#4A3F35;
+                          font-weight:600; letter-spacing:.5px;'>PREMIUM DELI</p>
+                <p style='margin:0 0 8px; font-size:16px; font-weight:700;
+                          color:{PALETTE["charcoal"]};'>Cheese · Salmon · Spanish ham</p>
+                <p style='margin:0; font-size:14px; color:{PALETTE["charcoal"]};'>
+                  <b>{prem_n} customers ({prem_pct:.0f}%)</b> currently choose
+                  a premium deli item alongside their wine.
+                </p>
+              </div>
+              <div style='background:white; border-radius:12px; border:1px solid #E2D8D6;
+                          border-left:5px solid {PALETTE["gold"]}; padding:18px 22px;'>
+                <p style='margin:0 0 4px; font-size:13px; color:#4A3F35;
+                          font-weight:600; letter-spacing:.5px;'>ENTRY DELI</p>
+                <p style='margin:0 0 8px; font-size:16px; font-weight:700;
+                          color:{PALETTE["charcoal"]};'>
+                  Olives · Chocolate · Candies · Cookies · Nuts</p>
+                <p style='margin:0; font-size:14px; color:{PALETTE["charcoal"]};'>
+                  <b>{entry_n} customers ({entry_pct:.0f}%)</b> choose
+                  an entry-level deli item alongside their wine.
+                </p>
+              </div>
+              <div style='background:{PALETTE["ivory"]}; border-radius:12px;
+                          border:1px solid #E2D8D6; padding:18px 22px;'>
+                <p style='margin:0 0 6px; font-size:15px; font-weight:700;
+                          color:{PALETTE["charcoal"]};'>What this tells us</p>
+                <p style='margin:0; font-size:14px; color:{PALETTE["charcoal"]}; line-height:1.7;'>
+                  Nearly half the store's customers already choose premium deli —
+                  without being prompted. The opportunity is not in converting
+                  entry customers into premium ones. It is in making premium
+                  products <b>more visible</b> so that the other half
+                  encounters them naturally.
+                </p>
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='margin-top:48px;'></div>", unsafe_allow_html=True)
+
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # BLOCK 2 — Product reach bar
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown(
+        f"<p style='font-size:19px; font-weight:700; color:{PALETTE['charcoal']};'>"
+        "Which products are customers actually buying?</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:15px; color:#4A3F35; margin-bottom:4px;'>"
+        "Every customer surveyed buys exactly one deli product per visit. "
+        "The bars show how many of the 404 surveyed customers chose each product.</p>",
+        unsafe_allow_html=True,
+    )
+    by_reach = prod.sort_values("n", ascending=False).copy()
+
+    fig_reach = go.Figure()
+    # Split into two traces so Plotly can show a legend
+    for tier_name, tier_color in [("Premium deli", PALETTE["burgundy"]),
+                                   ("Entry deli",   PALETTE["gold"])]:
+        mask = by_reach["tier"] == tier_name.split()[0]
+        sub  = by_reach[mask]
+        fig_reach.add_trace(go.Bar(
+            name=tier_name,
+            y=sub["Additional products"],
+            x=sub["n"],
+            orientation="h",
+            marker=dict(color=tier_color, opacity=0.88),
+            text=sub["n"].apply(lambda v: f"{v} customers"),
+            textposition="outside",
+            textfont=dict(size=13, color=PALETTE["charcoal"]),
+            width=0.55,
+            hovertemplate="<b>%{y}</b><br>%{x} of 404 surveyed customers<extra></extra>",
+        ))
+    fig_reach.update_layout(
+        base_layout(
+            title="Surveyed customers who chose each deli product (n=404)",
+            height=400,
+        ),
+        xaxis=dict(
+            range=[0, 150],
+            title="Number of customers (out of 404 surveyed)",
+            title_font=dict(size=14),
+            tickfont=dict(size=13),
+            dtick=25,
+        ),
+        yaxis=dict(tickfont=dict(size=15), autorange="reversed"),
+        barmode="overlay",
+        bargap=0.35,
+        legend=dict(
+            orientation="v",
+            yanchor="middle", y=0.5,
+            xanchor="left", x=1.02,
+            font=dict(size=13),
+        ),
+        margin=dict(t=60, b=50, l=120, r=140),
+    )
+    st.plotly_chart(fig_reach, use_container_width=True)
+
     st.markdown(callout(
-        "🧀", "Cross-sell gap — the strategic priority",
-        f"<b>{premium_share:.0f}%</b> of customers buy premium deli "
-        f"(cheese, Spanish ham, salmon*), but no single premium product reaches "
-        f"majority share in any segment — most still default to olives. "
-        f"A \"Pair It\" display at eye level and trained staff suggesting one deli match "
-        f"per wine could lift premium adoption within a quarter."
+        "", "The reach problem",
+        "Olives was chosen by 106 customers — Nuts by just 8. "
+        "That is a 13x difference across the same product range, "
+        "in the same store, bought by the same customers. "
+        "The lower products on this chart are not disliked — "
+        "they are simply not being seen or suggested."
     ), unsafe_allow_html=True)
 
-    st.markdown(" ")
-    ct = pd.crosstab(df_display["FM_segment"], df_display["Additional products"], normalize="index") * 100
-    fig = px.imshow(ct, text_auto=".0f", aspect="auto",
-                    color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]],
-                    labels=dict(x="Product", y="Segment", color="% of segment"))
-    fig.update_layout(base_layout(title="Product preference by FM segment (%)", height=380))
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("<div style='margin-top:44px;'></div>", unsafe_allow_html=True)
 
-    st.markdown("**Drinking occasion × Product purchased — pairing intelligence for in-store displays**")
-    ct2 = pd.crosstab(df_display["Place to drink"], df_display["Additional products"])
-    fig = px.imshow(ct2, text_auto=True, aspect="auto",
-                    color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]],
-                    labels=dict(x="Product", y="Occasion", color="Customers"))
-    fig.update_layout(base_layout(title="Occasion × Product co-occurrence", height=440))
-    st.plotly_chart(fig, use_container_width=True)
 
-    top = (df_display.groupby(["FM_segment", "Additional products"]).size()
-                 .reset_index(name="customers")
-                 .sort_values(["FM_segment", "customers"], ascending=[True, False]))
-    top["rank"] = top.groupby("FM_segment").cumcount() + 1
-    top1 = top[top["rank"] == 1][["FM_segment", "Additional products", "customers"]]
-    top1.columns = ["Segment", "Top deli choice", "Customers"]
-    st.markdown("**Top deli choice per FM segment** — natural anchor product for each group's bundles")
-    st.dataframe(top1, hide_index=True, use_container_width=True)
+    # ═══════════════════════════════════════════════════════════════════════
+    # BLOCK 3 — Occasion drives ticket and premium choice
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='margin-top:44px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='font-size:19px; font-weight:700; color:{PALETTE['charcoal']};'>"
+        "Where customers drink determines what they spend</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:15px; color:#4A3F35; margin-bottom:20px;'>"
+        "The occasion a customer is buying for is one of the strongest predictors "
+        "of their basket size — more so than age or gender. "
+        "Customers buying for a restaurant or holiday spend significantly more "
+        "and choose premium deli at a higher rate.</p>",
+        unsafe_allow_html=True,
+    )
 
-    # ── Salmond footnote — single source of truth, referenced by every * in this tab ──
-    st.markdown(salmond_footnote(), unsafe_allow_html=True)
+    occ_stats = (
+        df_f.groupby("Place to drink")
+        .agg(
+            customers   = ("ID",       "count"),
+            avg_ticket  = ("Ticket",   "mean"),
+            pct_premium = ("deli_tier",
+                           lambda x: (x == "Premium").mean() * 100),
+        )
+        .reset_index()
+        .sort_values("avg_ticket", ascending=False)
+    )
 
+    avg_ticket_all = df_f["Ticket"].mean()
+
+    fig_occ = go.Figure()
+    fig_occ.add_trace(go.Bar(
+        y=occ_stats["Place to drink"],
+        x=occ_stats["avg_ticket"],
+        orientation="h",
+        marker=dict(color=PALETTE["burgundy"], opacity=0.82),
+        text=[
+            f"  €{row['avg_ticket']:.0f} avg · {row['pct_premium']:.0f}% choose premium deli"
+            for _, row in occ_stats.iterrows()
+        ],
+        textposition="inside",
+        textfont=dict(size=13, color="white"),
+        insidetextanchor="start",
+        width=0.55,
+        showlegend=False,
+        customdata=occ_stats[["pct_premium", "customers"]].values,
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Avg ticket: €%{x:.0f}<br>"
+            "Premium deli: %{customdata[0]:.0f}%<br>"
+            "Customers: %{customdata[1]}<br>"
+            "<extra></extra>"
+        ),
+    ))
+
+    fig_occ.add_vline(
+        x=avg_ticket_all,
+        line_dash="dash", line_color=PALETTE["charcoal"], opacity=0.25,
+        annotation_text=f"Store avg €{avg_ticket_all:.0f}",
+        annotation_position="bottom right",
+        annotation_font=dict(size=11, color=PALETTE["charcoal"]),
+    )
+
+    fig_occ.update_layout(
+        base_layout(
+            title="Average ticket and premium deli choice by drinking occasion",
+            height=420,
+        ),
+        xaxis=dict(
+            title="Average ticket (€)",
+            title_font=dict(size=13),
+            tickfont=dict(size=12),
+            tickprefix="€",
+            range=[30, 95],
+        ),
+        yaxis=dict(tickfont=dict(size=14), autorange="reversed"),
+        showlegend=False,
+        margin=dict(t=60, b=50, l=150, r=20),
+    )
+    st.plotly_chart(fig_occ, use_container_width=True)
+
+    rest_ticket = occ_stats[occ_stats["Place to drink"]=="Restaurant"]["avg_ticket"].values[0]
+    party_ticket = occ_stats[occ_stats["Place to drink"]=="Parties"]["avg_ticket"].values[0]
+    rest_prem   = occ_stats[occ_stats["Place to drink"]=="Restaurant"]["pct_premium"].values[0]
+    holiday_ticket = occ_stats[occ_stats["Place to drink"]=="On holidays"]["avg_ticket"].values[0]
+
+    st.markdown(callout(
+        "", "Occasion is the clearest signal",
+        f"Restaurant customers spend <b>€{rest_ticket:.0f} on average</b> — "
+        f"€{rest_ticket - party_ticket:.0f} more than party buyers — "
+        f"and <b>{rest_prem:.0f}% of them choose premium deli</b>. "
+        f"Holiday buyers follow at €{holiday_ticket:.0f}. "
+        f"These customers are already in a premium mindset when they walk in. "
+        f"A targeted display for restaurant and holiday occasions — "
+        f"pairing premium wine with premium deli — would meet them exactly where they are."
+    ), unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # BLOCK 4 — Age predicts premium preference (linear trend)
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='margin-top:44px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='font-size:19px; font-weight:700; color:{PALETTE['charcoal']};'>"
+        "Older customers consistently choose premium deli</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:15px; color:#4A3F35; margin-bottom:20px;'>"
+        "Premium deli adoption rises steadily with age. "
+        "Over-50s choose premium products at nearly double the rate of the youngest group. "
+        "This is a direct guide for how to staff and stock for different customer profiles.</p>",
+        unsafe_allow_html=True,
+    )
+
+    AGE_ORDER = ["23 to 30", "31 to 40", "41 to 50", "more than 50"]
+    age_labels= ["23–30", "31–40", "41–50", "50+"]
+
+    age_prem = []
+    age_entry= []
+    age_n    = []
+    for age in AGE_ORDER:
+        sub = df_f[df_f["Age"] == age]
+        age_n.append(len(sub))
+        age_prem.append((sub["deli_tier"]=="Premium").mean()*100)
+        age_entry.append((sub["deli_tier"]=="Entry").mean()*100)
+
+    col_age1, col_age2 = st.columns(2, gap="large")
+
+    with col_age1:
+        fig_age = go.Figure()
+        fig_age.add_trace(go.Bar(
+            name="Premium deli",
+            x=age_labels,
+            y=age_prem,
+            marker_color=PALETTE["burgundy"],
+            opacity=0.88,
+            text=[f"{v:.0f}%" for v in age_prem],
+            textposition="outside",
+            textfont=dict(size=13),
+            width=0.45,
+        ))
+        fig_age.add_trace(go.Bar(
+            name="Entry deli",
+            x=age_labels,
+            y=age_entry,
+            marker_color=PALETTE["gold"],
+            opacity=0.88,
+            text=[f"{v:.0f}%" for v in age_entry],
+            textposition="outside",
+            textfont=dict(size=13),
+            width=0.45,
+        ))
+        fig_age.update_layout(
+            base_layout(
+                title="Premium vs Entry deli choice by age group",
+                height=380,
+                barmode="group",
+            ),
+            xaxis=dict(tickfont=dict(size=14), title="Age group",
+                       title_font=dict(size=13)),
+            yaxis=dict(range=[0, 75], ticksuffix="%",
+                       title="% of age group", title_font=dict(size=13),
+                       tickfont=dict(size=12)),
+            legend=dict(
+            orientation="v",
+            yanchor="middle", y=0.5,
+            xanchor="left", x=1.02,
+            font=dict(size=13),
+        ),
+            margin=dict(t=50, b=50, l=60, r=120),
+        )
+        st.plotly_chart(fig_age, use_container_width=True)
+
+    with col_age2:
+        age_ticket = [df_f[df_f["Age"]==a]["Ticket"].mean() for a in AGE_ORDER]
+        age_counts  = [df_f[df_f["Age"]==a]["Ticket"].count() for a in AGE_ORDER]
+
+        fig_age_tkt = go.Figure()
+        fig_age_tkt.add_trace(go.Scatter(
+            x=age_labels,
+            y=age_ticket,
+            mode="lines+markers+text",
+            line=dict(color=PALETTE["burgundy"], width=3),
+            marker=dict(size=12, color=PALETTE["burgundy"],
+                        line=dict(width=2, color="white")),
+            text=[f"€{v:.0f}" for v in age_ticket],
+            textposition="top center",
+            textfont=dict(size=13, color=PALETTE["charcoal"]),
+            showlegend=False,
+        ))
+        fig_age_tkt.update_layout(
+            base_layout(
+                title="Average ticket by age group",
+                height=380,
+            ),
+            xaxis=dict(tickfont=dict(size=14), title="Age group",
+                       title_font=dict(size=13)),
+            yaxis=dict(range=[50, 62], tickprefix="€",
+                       title="Average ticket (€)", title_font=dict(size=13),
+                       tickfont=dict(size=12)),
+            margin=dict(t=60, b=50, l=60, r=20),
+        )
+        st.plotly_chart(fig_age_tkt, use_container_width=True)
+
+    youngest_prem = age_prem[0]
+    oldest_prem   = age_prem[-1]
+    st.markdown(callout(
+        "", "Age is a reliable predictor of premium preference",
+        f"Premium deli choice rises from <b>{youngest_prem:.0f}%</b> among 23–30 year olds "
+        f"to <b>{oldest_prem:.0f}%</b> among over-50s — a consistent increase at every age band. "
+        f"This gives the store a practical guide: when an older customer comes in, "
+        f"a premium deli suggestion is more likely to land. "
+        f"Staff awareness of this pattern costs nothing to implement."
+    ), unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # BLOCK 5 — The loyalty blind spot: cash dominates every segment
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='margin-top:44px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='font-size:19px; font-weight:700; color:{PALETTE['charcoal']};'>"
+        "64% of customers are invisible to the store</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:15px; color:#4A3F35; margin-bottom:20px;'>"
+        "Cash purchases leave no record. The store cannot identify who its best "
+        "customers are, track whether they are returning, or reach them with any offer. "
+        "This is not a marginal issue — it affects every segment, including the most valuable ones.</p>",
+        unsafe_allow_html=True,
+    )
+
+    seg_order_pay = ["Champions","Loyal Regulars","Occasion Splurgers","Casual Visitors"]
+    pay_data = (
+        df_f.groupby(["FM_segment","Payment mode"])
+        .size().reset_index(name="n")
+    )
+    pay_totals = df_f.groupby("FM_segment").size().reset_index(name="total")
+    pay_data   = pay_data.merge(pay_totals, on="FM_segment")
+    pay_data["pct"] = pay_data["n"] / pay_data["total"] * 100
+
+    pay_colors = {
+        "Cash":        PALETTE["burgundy"],
+        "Credit card": PALETTE["gold"],
+        "Debit card":  "#B0A09A",
+    }
+    fig_pay = go.Figure()
+    for mode in ["Cash", "Credit card", "Debit card"]:
+        sub  = pay_data[pay_data["Payment mode"]==mode].set_index("FM_segment")
+        vals = [sub.loc[s,"pct"] if s in sub.index else 0 for s in seg_order_pay]
+        fig_pay.add_trace(go.Bar(
+            name=mode,
+            x=seg_order_pay,
+            y=vals,
+            marker_color=pay_colors[mode],
+            opacity=0.88,
+            text=[f"{v:.0f}%" for v in vals],
+            textposition="inside",
+            textfont=dict(size=13, color="white"),
+            width=0.55,
+        ))
+    fig_pay.update_layout(
+        base_layout(
+            title="Payment method by segment — share of customers",
+            height=400,
+            barmode="stack",
+        ),
+        xaxis=dict(tickfont=dict(size=14)),
+        yaxis=dict(
+            range=[0, 105],
+            ticksuffix="%",
+            title="% of segment",
+            title_font=dict(size=13),
+            tickfont=dict(size=12),
+        ),
+        legend=dict(
+            orientation="v",
+            yanchor="middle", y=0.5,
+            xanchor="left", x=1.02,
+            font=dict(size=14),
+        ),
+        margin=dict(t=50, b=50, l=60, r=130),
+    )
+    st.plotly_chart(fig_pay, use_container_width=True)
+
+    champ_cash_pct = pay_data[
+        (pay_data["FM_segment"]=="Champions") &
+        (pay_data["Payment mode"]=="Cash")
+    ]["pct"].values[0]
+
+    st.markdown(callout(
+        "", "The loyalty blind spot",
+        f"<b>{champ_cash_pct:.0f}% of Champions — the store's highest-frequency customers "
+        f"— pay in cash</b>, leaving no purchase trail. "
+        f"The store cannot know how often they visit, what they buy over time, "
+        f"or whether they are at risk of leaving. "
+        f"Cash dominance is consistent across all segments, which means "
+        f"any loyalty programme, targeted offer, or personalised service "
+        f"is impossible to deliver without first solving the data capture problem. "
+        f"A simple stamp card or app-based loyalty scheme would begin to change this "
+        f"without requiring customers to change how they pay."
+    ), unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KEY TAKEAWAYS
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='margin-top:52px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='font-size:22px; font-weight:700; color:{PALETTE['burgundy']};'>"
+        "Key Takeaways</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:15px; color:#4A3F35; margin-bottom:24px;'>"
+        "Three findings from this analysis that translate directly into action.</p>",
+        unsafe_allow_html=True,
+    )
+
+    takeaways = [
+        (
+            PALETTE["burgundy"],
+            "01",
+            "Target the occasion, not just the customer",
+            f"Restaurant and holiday buyers spend €{rest_ticket:.0f} and €{holiday_ticket:.0f} "
+            f"on average — the highest in the store. They also choose premium deli at the highest rate. "
+            f"A dedicated premium display for these occasions would require no new stock "
+            f"and no new customers — just better placement for the ones already walking in.",
+        ),
+        (
+            PALETTE["gold"],
+            "02",
+            "Older customers are the premium deli audience",
+            f"Premium deli choice rises from {youngest_prem:.0f}% at age 23–30 to "
+            f"{oldest_prem:.0f}% at over 50, consistently at every age band. "
+            f"Staff can use age as a simple, reliable signal for when a premium "
+            f"suggestion is most likely to resonate — no data system required.",
+        ),
+        (
+            PALETTE["merlot"],
+            "03",
+            "The store cannot see its best customers",
+            f"{champ_cash_pct:.0f}% of Champions pay cash. "
+            f"Without a loyalty mechanism, the store cannot identify who they are, "
+            f"track retention, or personalise any offer. "
+            f"Everything else in this analysis — better stocking, smarter suggestions, "
+            f"targeted promotions — depends on first solving this data capture gap.",
+        ),
+    ]
+
+    for color, number, title, body in takeaways:
+        st.markdown(
+            f"""
+            <div style='background:white; border-radius:12px; border:1px solid #E2D8D6;
+                        border-left:6px solid {color}; padding:24px 28px;
+                        margin-bottom:16px; display:flex; gap:24px; align-items:flex-start;'>
+              <div style='flex-shrink:0;'>
+                <p style='margin:0; font-size:32px; font-weight:700;
+                           color:{color}; opacity:0.25; line-height:1;'>{number}</p>
+              </div>
+              <div>
+                <p style='margin:0 0 8px; font-size:17px; font-weight:700;
+                           color:{PALETTE["charcoal"]};'>{title}</p>
+                <p style='margin:0; font-size:15px; color:#4A3F35;
+                           line-height:1.7;'>{body}</p>
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
 def render_actions(df_f: pd.DataFrame) -> None:
     st.subheader("Strategic Action Plan")
@@ -1593,12 +2074,12 @@ def main() -> None:
     # drilling from aggregate profile down to individuals is the natural
     # continuation of that tab's content).
     tabs = st.tabs([
-        "👥 Customer Profile",      # who they are (+ explorer)
-        "🎯 FM Segments",           # group by revenue value
-        "🔬 Behavioral Segments",   # two ML lenses (behavioral + spend tiers)
-        "🧀 Product Mix",           # what they buy
-        "📊 Strategic Overview",    # synthesis + What-If simulator
-        "📋 Action Plan",           # the close — what to do
+        "Customer Profile",      # who they are (+ explorer)
+        "FM Segments",           # group by revenue value
+        "Behavioral Segments",   # two ML lenses (behavioral + spend tiers)
+        "Customer Behaviour",           # what they buy
+        "Strategic Overview",    # synthesis + What-If simulator
+        "Action Plan",           # the close — what to do
     ])
 
     with tabs[0]:
@@ -1611,14 +2092,14 @@ def main() -> None:
             render_explorer(df_f)
         _next_tab_hint(
             "Now that we know who walks through the door, the next tab — "
-            "<b>🎯 FM Segments</b> — groups these customers by revenue value "
+            "<b>FM Segments</b> — groups these customers by revenue value "
             "(frequency × monetary)."
         )
     with tabs[1]:
         render_segments(df_f)
         _next_tab_hint(
             "FM uses a deterministic median split. The next tab — "
-            "<b>🔬 Behavioral Segments</b> — lets the data group customers "
+            "<b>Behavioral Segments</b> — lets the data group customers "
             "without any rules, using two complementary unsupervised lenses "
             "(behavioral archetypes + spend tiers)."
         )
@@ -1626,14 +2107,14 @@ def main() -> None:
         render_behavioral(df_f)
         _next_tab_hint(
             "Three lenses on the same 404 customers. The next tab — "
-            "<b>🧀 Product Mix</b> — steps away from segmentation to look at "
+            "<b>Customer Behaviour</b> — steps away from segmentation to look at "
             "what customers actually buy, and where the cross-sell gap sits."
         )
     with tabs[3]:
         render_products(df_f)
         _next_tab_hint(
             "With the customer base understood from every angle, the next "
-            "tab — <b>📊 Strategic Overview</b> — pulls back to the headline "
+            "tab — <b>Strategic Overview</b> — pulls back to the headline "
             "numbers and lets you project the revenue impact of strategic "
             "actions via the What-If simulator."
         )
@@ -1641,7 +2122,7 @@ def main() -> None:
         render_overview(df_f)
         _next_tab_hint(
             "The simulator shows what <i>could</i> change. The final tab — "
-            "<b>📋 Action Plan</b> — translates these levers into specific, "
+            "<b>Action Plan</b> — translates these levers into specific, "
             "prioritised actions per segment."
         )
     with tabs[5]:
