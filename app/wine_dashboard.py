@@ -217,25 +217,44 @@ def _profile_hero(df: pd.DataFrame, filters_active: bool) -> None:
 # ── Section A.1: Population pyramid ───────────────────────────────────────
 
 def _profile_population_pyramid(df: pd.DataFrame) -> None:
-    """Stacked bar: customers per age group, split Male / Female."""
+    """Population pyramid: Female bars go left (negative), Male bars go right (positive)."""
     pivot = (df.pivot_table(index="Age", columns="Gender", aggfunc="size", fill_value=0)
                .reindex(AGE_ORDER))
     if "Male"   not in pivot.columns: pivot["Male"]   = 0
     if "Female" not in pivot.columns: pivot["Female"] = 0
 
-    melted = pivot.reset_index().melt(id_vars="Age", var_name="Gender", value_name="Customers")
-    fig = px.bar(
-        melted, x="Age", y="Customers", color="Gender",
-        color_discrete_map={"Male": PALETTE["burgundy"], "Female": PALETTE["teal"]},
-        barmode="stack",
-        text="Customers",
-        category_orders={"Age": AGE_ORDER},
-    )
-    fig.update_traces(textposition="inside", textfont_color="white")
+    males   = pivot["Male"].values
+    females = pivot["Female"].values
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=AGE_ORDER, x=males, name="Male", orientation="h",
+        marker_color=PALETTE["teal"],
+        text=[str(v) for v in males],
+        textposition="inside", textfont=dict(color="white", size=13),
+    ))
+    fig.add_trace(go.Bar(
+        y=AGE_ORDER, x=[-v for v in females], name="Female", orientation="h",
+        marker_color=PALETTE["burgundy"],
+        text=[str(v) for v in females],
+        textposition="inside", textfont=dict(color="white", size=13),
+    ))
+    max_val = max(max(males), max(females)) * 1.2
     fig.update_layout(base_layout(
         title="Customers by age group",
         height=360,
-        xaxis_title="Age group", yaxis_title="Customers",
+        barmode="overlay",
+        xaxis=dict(
+            range=[-max_val, max_val],
+            tickvals=[-int(max_val*0.75), -int(max_val*0.5), -int(max_val*0.25),
+                      0,
+                      int(max_val*0.25), int(max_val*0.5), int(max_val*0.75)],
+            ticktext=[str(int(max_val*0.75)), str(int(max_val*0.5)), str(int(max_val*0.25)),
+                      "0",
+                      str(int(max_val*0.25)), str(int(max_val*0.5)), str(int(max_val*0.75))],
+            title="Customers",
+        ),
+        yaxis=dict(title=""),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     ))
     st.plotly_chart(fig, use_container_width=True)
@@ -311,16 +330,26 @@ def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) ->
     ct["total"] = ct["Male"] + ct["Female"]
     ct = ct.sort_values("total", ascending=True)   # most-frequent at top in horizontal bar
 
+    ct["m_pct"] = ct["Male"]   / ct["total"]
+    ct["f_pct"] = ct["Female"] / ct["total"]
     melted = ct[["Male", "Female"]].reset_index().melt(
         id_vars="Place to drink", var_name="Gender", value_name="Customers"
+    )
+    pct_map = {(row["Place to drink"], "Male"):   f"{int(row['Male'])} ({row['m_pct']*100:.0f}%)"
+               for _, row in ct.reset_index().iterrows()}
+    pct_map.update({(row["Place to drink"], "Female"): f"{int(row['Female'])} ({row['f_pct']*100:.0f}%)"
+                    for _, row in ct.reset_index().iterrows()})
+    melted["label"] = melted.apply(
+        lambda r: pct_map.get((r["Place to drink"], r["Gender"]), str(int(r["Customers"]))),
+        axis=1,
     )
     place_order = ct.index.tolist()
 
     fig = px.bar(
         melted, x="Customers", y="Place to drink", color="Gender",
-        color_discrete_map={"Male": PALETTE["burgundy"], "Female": PALETTE["teal"]},
+        color_discrete_map={"Male": PALETTE["teal"], "Female": PALETTE["burgundy"]},
         orientation="h", barmode="stack",
-        text="Customers",
+        text="label",
         category_orders={"Place to drink": place_order},
     )
     fig.update_traces(textposition="inside", textfont_color="white")
@@ -331,9 +360,7 @@ def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) ->
     ))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Top-2 skew insights for the prose callout (only if both genders present)
-    ct["m_pct"] = ct["Male"]   / ct["total"]
-    ct["f_pct"] = ct["Female"] / ct["total"]
+    # Top-2 skew insights (m_pct / f_pct already computed above)
     insights = []
     male_skewed = ct.nlargest(2, "m_pct")
     female_skewed = ct.nlargest(2, "f_pct")
@@ -799,6 +826,7 @@ def render_segments(df_f: pd.DataFrame) -> None:
     fig.update_layout(base_layout(title="Product mix by FM segment", height=380,
                                   barmode="stack", xaxis_title="Customers", yaxis_title=""))
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
     sc1, sc2 = st.columns(2)
 
@@ -833,7 +861,7 @@ def render_segments(df_f: pd.DataFrame) -> None:
     )
     fig_pr.update_traces(textposition="outside", textfont=dict(color=PALETTE["charcoal"]))
     fig_pr.update_layout(base_layout(
-        title="% choosing premium deli per segment",
+        title="% choosing premium per segment",
         height=320, showlegend=False,
         xaxis=dict(range=[0, 65], ticksuffix="%", title="% of segment"),
         yaxis_title="",
@@ -953,24 +981,6 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
         diag.update_yaxes(title="Silhouette ↑", secondary_y=True)
         st.plotly_chart(diag, use_container_width=True)
 
-    # ---- Cross-tab: FM × Behavioral ----
-    st.markdown("**How do the two segmentations overlap?**")
-    st.caption(
-        "A dense diagonal would mean they measure the same thing. "
-        "A scattered heatmap means they're genuinely complementary."
-    )
-    fm_order = ["Champions", "Loyal Regulars", "Occasion Splurgers", "Casual Visitors"]
-    ct = pd.crosstab(df_b["FM_segment"], df_b["beh_segment"])
-    ct = ct.reindex(index=fm_order, columns=beh_order, fill_value=0)
-    fig = px.imshow(
-        ct, text_auto=True, aspect="auto",
-        color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["merlot"]]],
-        labels=dict(x="Behavioral segment", y="FM segment", color="Customers"),
-    )
-    fig.update_layout(base_layout(title="FM segment × Behavioral segment — customer overlap",
-                                  height=340))
-    st.plotly_chart(fig, use_container_width=True)
-
     # ---- Avg monthly spend per behavioral segment ----
     spend_beh = (
         df_b.groupby("beh_segment")["monthly_spend"].mean()
@@ -997,17 +1007,18 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     fig = px.bar(prod, x="customers", y="beh_segment", color="Additional products",
                  orientation="h", color_discrete_sequence=SEQ,
                  category_orders={"beh_segment": beh_order})
-    fig.update_layout(base_layout(title="What each behavioral group buys from the deli",
+    fig.update_layout(base_layout(title="What each behavioral group buys",
                                   height=380, barmode="stack",
                                   xaxis_title="Customers", yaxis_title=""))
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
     # ---- Gender split ----
     gen_mix = pd.crosstab(df_b["beh_segment"], df_b["Gender"], normalize="index") * 100
     fig = px.bar(
         gen_mix.reset_index().melt(id_vars="beh_segment", var_name="Gender", value_name="pct"),
         x="pct", y="beh_segment", color="Gender", orientation="h",
-        color_discrete_sequence=[PALETTE["merlot"], PALETTE["rose"]],
+        color_discrete_map={"Male": PALETTE["teal"], "Female": PALETTE["burgundy"]},
         category_orders={"beh_segment": beh_order},
     )
     fig.update_layout(base_layout(title="Gender mix per behavioral segment (%)",
@@ -1078,7 +1089,7 @@ def render_products(df_f: pd.DataFrame) -> None:
             pull=[0.03, 0.03],
         )
         fig_pie.update_layout(
-            base_layout(title="Premium vs Entry deli split", height=360, showlegend=False),
+            base_layout(title="Premium vs Entry split", height=360, showlegend=False),
             annotations=[dict(
                 text=f"<b>{len(df_f)}</b><br>customers",
                 x=0.5, y=0.5,
@@ -1277,7 +1288,7 @@ def render_products(df_f: pd.DataFrame) -> None:
 
     fig_occ.update_layout(
         base_layout(
-            title="Average ticket and premium deli choice by drinking occasion",
+            title="Average ticket by drinking occasion",
             height=420,
         ),
         xaxis=dict(
@@ -1366,7 +1377,7 @@ def render_products(df_f: pd.DataFrame) -> None:
         ))
         fig_age.update_layout(
             base_layout(
-                title="Premium vs Entry deli choice by age group",
+                title="Premium vs Entry choice by age group",
                 height=380,
                 barmode="group",
             ),
@@ -1386,29 +1397,29 @@ def render_products(df_f: pd.DataFrame) -> None:
         st.plotly_chart(fig_age, use_container_width=True)
 
     with col_age2:
-        age_ticket = [df_f[df_f["Age"]==a]["Ticket"].mean() for a in AGE_ORDER]
-        hm_data = np.array([[v if not np.isnan(v) else 0 for v in age_ticket]])
-        fig_age_tkt = px.imshow(
+        age_spend = [df_f[df_f["Age"]==a]["monthly_spend"].mean() for a in AGE_ORDER]
+        hm_data = np.array([[v if not np.isnan(v) else 0 for v in age_spend]])
+        fig_age_sp = px.imshow(
             hm_data,
             x=age_labels,
-            y=["Avg ticket (€)"],
+            y=["Avg monthly spend (€)"],
             color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["burgundy"]]],
             text_auto=False,
             aspect="auto",
         )
-        fig_age_tkt.update_traces(
-            text=[[f"€{v:.0f}" for v in age_ticket]],
+        fig_age_sp.update_traces(
+            text=[[f"€{v:.0f}" for v in age_spend]],
             texttemplate="%{text}",
             textfont=dict(size=14, color=PALETTE["charcoal"]),
         )
-        fig_age_tkt.update_layout(
-            base_layout(title="Avg ticket by age group", height=200),
+        fig_age_sp.update_layout(
+            base_layout(title="Avg monthly spend by age group", height=200),
             xaxis=dict(tickfont=dict(size=13), title=""),
             yaxis=dict(tickfont=dict(size=12), title=""),
             coloraxis_showscale=False,
             margin=dict(t=50, b=20, l=10, r=10),
         )
-        st.plotly_chart(fig_age_tkt, use_container_width=True)
+        st.plotly_chart(fig_age_sp, use_container_width=True)
 
     youngest_prem = age_prem[0]
     oldest_prem   = age_prem[-1]
@@ -1904,8 +1915,9 @@ def main() -> None:
                 "basket size on each visit, not a cumulative lifetime total."
             )
             st.caption(
-                "**Synthetic / case-study data.** The dataset is the ESADE *Analytics "
-                "and Big Data* case-study sample. Some records contain unrealistic "
+                "**Synthetic dataset.** The dataset is the ESADE *Analytics "
+                "and Big Data* class sample — it is synthetic data created for this course. "
+                "Some records contain unrealistic "
                 "combinations (e.g. customers visiting daily and spending €100 every "
                 "time — that's €36,000/year on wine and deli, which is implausible "
                 "for an individual). We surface these as-is rather than clipping, "
