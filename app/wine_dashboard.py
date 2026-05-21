@@ -48,10 +48,7 @@ from wine_data       import (load_data, compute_fm_segments,
                               FREQ_ORDER, FREQ_VISITS_PER_MONTH, AGE_ORDER,
                               EDUCATION_GROUP_ORDER, SOCIAL_MAP)
 from wine_clustering import (
-    # Behavioral lens — K-Means K=4 on (frequency, sociality)
     fit_behavioral_clusters, name_behavioral_clusters, behavioral_diagnostics,
-    # Value lens — K-Prototypes spend tiers (Entry/Core/Premium)
-    fit_clusters, name_clusters_by_spend, spend_tier_diagnostics, KPROTOTYPES_OK,
 )
 from wine_simulator  import simulate_revenue
 from wine_config     import SEGMENT_META, BEHAVIORAL_META
@@ -63,7 +60,7 @@ from wine_config     import SEGMENT_META, BEHAVIORAL_META
 
 st.set_page_config(
     page_title="Wine Shop Customer Dashboard",
-    page_icon="🍷",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -114,7 +111,7 @@ def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # ── Section A: Demographics (filter-independent) ───────────────────────
     st.markdown("### A. Who they are — demographic composition")
     if filters_active:
-        st.caption(f"ℹ️ Sidebar filters are active. These composition views "
+        st.caption(f"Note: Sidebar filters are active. These composition views "
                    f"always show all {len(df_all)} customers — they would "
                    f"lose meaning if filtered.")
     else:
@@ -171,7 +168,7 @@ def _profile_hero(df: pd.DataFrame, filters_active: bool) -> None:
     # Salmond marker for the product chip
     product_disp = modal["Product"] + ("*" if modal["Product"] == "Salmond" else "")
 
-    avatar_emoji = "👨" if modal["Gender"] == "Male" else "👩"
+    avatar_emoji = ""
     chip_style = (f"display:inline-block; padding:6px 14px; margin:4px 4px 0 0; "
                   f"background:{PALETTE['cream']}; color:{PALETTE['charcoal']}; "
                   f"border-radius:16px; font-size:12px; font-weight:500;")
@@ -193,7 +190,7 @@ def _profile_hero(df: pd.DataFrame, filters_active: bool) -> None:
             </div>
             <div style='flex:1; min-width:300px;'>
                 <p style='font-size:16px; color:{PALETTE["charcoal"]}; line-height:1.5; margin:0 0 12px 0;'>
-                    {avatar_emoji} The typical wine-shop customer is
+                    The typical wine-shop customer is
                     <b>{modal["Gender"].lower()}</b>, aged <b>{modal["Age"]}</b>,
                     with a <b>{modal["Edu"]}</b>-level education.
                     Visits <b>{modal["Freq"].lower()}</b> and most often drinks
@@ -220,39 +217,25 @@ def _profile_hero(df: pd.DataFrame, filters_active: bool) -> None:
 # ── Section A.1: Population pyramid ───────────────────────────────────────
 
 def _profile_population_pyramid(df: pd.DataFrame) -> None:
-    """Classic horizontal age × gender pyramid. Male on left (negative), Female on right."""
+    """Stacked bar: customers per age group, split Male / Female."""
     pivot = (df.pivot_table(index="Age", columns="Gender", aggfunc="size", fill_value=0)
                .reindex(AGE_ORDER))
     if "Male"   not in pivot.columns: pivot["Male"]   = 0
     if "Female" not in pivot.columns: pivot["Female"] = 0
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=pivot.index, x=-pivot["Male"], orientation="h",
-        name="Male", marker_color=PALETTE["burgundy"],
-        text=pivot["Male"], textposition="auto",
-        hovertemplate="Age: <b>%{y}</b><br>Male: %{text} customers<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        y=pivot.index, x=pivot["Female"], orientation="h",
-        name="Female", marker_color=PALETTE["teal"],
-        text=pivot["Female"], textposition="auto",
-        hovertemplate="Age: <b>%{y}</b><br>Female: %{text} customers<extra></extra>",
-    ))
-
-    # Symmetric X-axis range with absolute-value tick labels
-    max_abs = int(max(pivot["Male"].max(), pivot["Female"].max())) + 5
-    tick_step = 20 if max_abs > 40 else 10
-    ticks = list(range(-max_abs - (-max_abs % tick_step), max_abs + 1, tick_step))
-    tick_text = [str(abs(t)) for t in ticks]
-
+    melted = pivot.reset_index().melt(id_vars="Age", var_name="Gender", value_name="Customers")
+    fig = px.bar(
+        melted, x="Age", y="Customers", color="Gender",
+        color_discrete_map={"Male": PALETTE["burgundy"], "Female": PALETTE["teal"]},
+        barmode="stack",
+        text="Customers",
+        category_orders={"Age": AGE_ORDER},
+    )
+    fig.update_traces(textposition="inside", textfont_color="white")
     fig.update_layout(base_layout(
-        title="Age × Gender — population pyramid",
-        height=380, barmode="overlay", bargap=0.15,
-        xaxis=dict(tickvals=ticks, ticktext=tick_text,
-                   zeroline=True, zerolinewidth=2,
-                   zerolinecolor=PALETTE["charcoal"], title="Customers"),
-        yaxis=dict(title=""),
+        title="Customers by age group",
+        height=360,
+        xaxis_title="Age group", yaxis_title="Customers",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     ))
     st.plotly_chart(fig, use_container_width=True)
@@ -308,17 +291,13 @@ def _profile_education_funnel(df: pd.DataFrame) -> None:
         yaxis=dict(title=""),
     ))
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("🛈 Hover any bar to see the raw survey levels that roll up into the tier.")
+    st.caption("Hover any bar to see the raw survey levels that roll up into the tier.")
 
 
 # ── Section B: Diverging Gender × Place ───────────────────────────────────
 
 def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
-    """Diverging horizontal bars — Male left, Female right, sorted by skew.
-
-    Falls back to df_all (with a notice) if a Gender filter has collapsed
-    the chart to one side.
-    """
+    """Stacked bar: customers per drinking occasion, Male/Female stacked, ordered by total."""
     df = df_f
     fallback_note = None
     if df["Gender"].nunique() < 2:
@@ -329,39 +308,32 @@ def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) ->
     ct = pd.crosstab(df["Place to drink"], df["Gender"])
     if "Male"   not in ct.columns: ct["Male"]   = 0
     if "Female" not in ct.columns: ct["Female"] = 0
-    ct["total"]  = ct["Male"] + ct["Female"]
-    ct["m_pct"]  = ct["Male"]   / ct["total"]
-    ct["f_pct"]  = ct["Female"] / ct["total"]
-    ct = ct.sort_values("m_pct")   # most-female at top, most-male at bottom
+    ct["total"] = ct["Male"] + ct["Female"]
+    ct = ct.sort_values("total", ascending=True)   # most-frequent at top in horizontal bar
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=ct.index, x=-ct["Male"], orientation="h",
-        name="Male", marker_color=PALETTE["burgundy"],
-        text=[f"{n} ({p*100:.0f}%)" for n, p in zip(ct["Male"], ct["m_pct"])],
-        textposition="inside", insidetextanchor="end",
-        hovertemplate="<b>%{y}</b><br>Male: %{text}<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        y=ct.index, x=ct["Female"], orientation="h",
-        name="Female", marker_color=PALETTE["teal"],
-        text=[f"{n} ({p*100:.0f}%)" for n, p in zip(ct["Female"], ct["f_pct"])],
-        textposition="inside", insidetextanchor="start",
-        hovertemplate="<b>%{y}</b><br>Female: %{text}<extra></extra>",
-    ))
-    max_abs = int(max(ct["Male"].max(), ct["Female"].max())) + 10
+    melted = ct[["Male", "Female"]].reset_index().melt(
+        id_vars="Place to drink", var_name="Gender", value_name="Customers"
+    )
+    place_order = ct.index.tolist()
+
+    fig = px.bar(
+        melted, x="Customers", y="Place to drink", color="Gender",
+        color_discrete_map={"Male": PALETTE["burgundy"], "Female": PALETTE["teal"]},
+        orientation="h", barmode="stack",
+        text="Customers",
+        category_orders={"Place to drink": place_order},
+    )
+    fig.update_traces(textposition="inside", textfont_color="white")
     fig.update_layout(base_layout(
-        title="Where customers drink — Male / Female split",
-        height=470, barmode="relative",
-        xaxis=dict(range=[-max_abs, max_abs],
-                   zeroline=True, zerolinewidth=2,
-                   zerolinecolor=PALETTE["charcoal"], title="Customers"),
-        yaxis=dict(title=""),
+        title="Where customers drink",
+        height=420, xaxis_title="Customers", yaxis_title="",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     ))
     st.plotly_chart(fig, use_container_width=True)
 
     # Top-2 skew insights for the prose callout (only if both genders present)
+    ct["m_pct"] = ct["Male"]   / ct["total"]
+    ct["f_pct"] = ct["Female"] / ct["total"]
     insights = []
     male_skewed = ct.nlargest(2, "m_pct")
     female_skewed = ct.nlargest(2, "f_pct")
@@ -374,13 +346,13 @@ def _profile_gender_place_diverging(df_f: pd.DataFrame, df_all: pd.DataFrame) ->
 
     if insights:
         st.markdown(callout(
-            "📊", "The gender signal",
+            "", "The gender signal",
             " · ".join(insights) + ". Use this to design gender-tailored "
             "in-store displays and bundle promotions for each occasion."
         ), unsafe_allow_html=True)
 
     if fallback_note:
-        st.info(f"ℹ️ {fallback_note}")
+        st.info(fallback_note)
 
 
 # ── Section C: Monthly spending patterns ──────────────────────────────────
@@ -416,7 +388,7 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
     st.markdown("&nbsp;", unsafe_allow_html=True)
 
     # Education-bucket reminder (kept close to the two heatmaps that use it)
-    with st.expander("🛈 What's in each education tier?"):
+    with st.expander("What's in each education tier?"):
         for tier in EDUCATION_GROUP_ORDER:
             st.caption(f"**{tier}** — {EDUCATION_BUCKET_CONTENTS[tier]}")
 
@@ -437,7 +409,7 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
         bot_idx = means.idxmin(); bot_val = int(means.min())
         ratio = means.max() / max(means.min(), 1)
         st.markdown(callout(
-            "💡", "The most-valuable customer profile may surprise you",
+            "", "The most-valuable customer profile may surprise you",
             f"<b>{top_idx[0]} · {top_idx[1]}-tier</b> customers spend on average "
             f"<b>€{top_val}/month</b> — {ratio:.1f}× more than the lowest cell, "
             f"<b>{bot_idx[0]} · {bot_idx[1]}-tier</b> at <b>€{bot_val}/month</b>. "
@@ -466,7 +438,7 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
         top_idx = age_edu.idxmax()
         top_val = int(round(age_edu.max()))
         st.markdown(callout(
-            "🎯", "Life-stage matters more than diplomas",
+            "", "Life-stage matters more than diplomas",
             f"The highest-value (age × education) cohort is "
             f"<b>{top_idx[0]} · {top_idx[1]}-tier</b> at <b>€{top_val}/month</b>. "
             f"Use this matrix when designing cohort-specific direct marketing — "
@@ -499,7 +471,7 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
         top_val = int(round(reliable.max()))
         top_n   = int(age_occ_count.loc[top_idx])
         st.markdown(callout(
-            "🎯", "Occasion is the most actionable lens for campaigns",
+            "", "Occasion is the most actionable lens for campaigns",
             f"The highest-spending well-populated cohort is "
             f"<b>{top_idx[0]}-year-olds drinking at {top_idx[1].lower()}</b> "
             f"at <b>€{top_val}/month</b> per customer (n = {top_n}). "
@@ -701,13 +673,13 @@ def _profile_relationship_strengths(df: pd.DataFrame) -> None:
             f"combining several signals at once (frequency, spend, occasion) "
             f"produces customer groups that single attributes never could."
         )
-        st.markdown(callout("🧭", "How to read this chart", body),
+        st.markdown(callout("", "How to read this chart", body),
                     unsafe_allow_html=True)
 
     # Academic transparency expander — what the 0–100 scale actually is.
     # Keeps the manager-friendly facade above, but lets a marker/professor see
     # the underlying statistics are sound.
-    with st.expander("📐 What's the maths underneath? · for the academically curious"):
+    with st.expander("What's the maths underneath? · for the academically curious"):
         st.markdown(f"""
 The 0–100 *Pattern score* is **Cramér's V × 100**.
 
@@ -750,7 +722,7 @@ def render_segments(df_f: pd.DataFrame) -> None:
 
     seg_summary = df_f.groupby("FM_segment").agg(
         customers=("ID", "count"),
-        avg_ticket=("Ticket", "mean"),
+        avg_monthly_spend=("monthly_spend", "mean"),
         avg_visits=("monthly_visits", "mean"),
         revenue=("est_annual_revenue", "sum"),
     ).reset_index()
@@ -782,7 +754,7 @@ def render_segments(df_f: pd.DataFrame) -> None:
                 <p style='font-size:12px; color:{PALETTE["charcoal"]}; margin:8px 0; min-height:50px;'>{meta["summary"]}</p>
                 <hr style='margin:6px 0; border:none; border-top:1px solid #EEE;'>
                 <p style='margin:4px 0; font-size:13px;'><b>{int(row["customers"])}</b> customers ({row["share_customers"]:.0f}%)</p>
-                <p style='margin:4px 0; font-size:13px;'>Avg ticket: <b>€{row["avg_ticket"]:.0f}</b></p>
+                <p style='margin:4px 0; font-size:13px;'>Avg monthly spend: <b>€{row["avg_monthly_spend"]:.0f}</b></p>
                 <p style='margin:4px 0; font-size:13px;'>Visits/mo: <b>{row["avg_visits"]:.1f}</b></p>
                 <p style='margin:4px 0; font-size:13px;'>Revenue share: <b>{row["share_revenue"]:.0f}%</b></p>
             </div>
@@ -824,189 +796,61 @@ def render_segments(df_f: pd.DataFrame) -> None:
     fig = px.bar(prod, x="customers", y="FM_segment", color="Additional products",
                  orientation="h", color_discrete_sequence=SEQ,
                  category_orders={"FM_segment": seg_order})
-    fig.update_layout(base_layout(title="Deli product mix by FM segment", height=380,
+    fig.update_layout(base_layout(title="Product mix by FM segment", height=380,
                                   barmode="stack", xaxis_title="Customers", yaxis_title=""))
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("**Demographic mix per segment**")
-    dc1, dc2 = st.columns(2)
-    age_mix = pd.crosstab(df_f["FM_segment"], df_f["Age"], normalize="index") * 100
-    fig = px.bar(
-        age_mix.reset_index().melt(id_vars="FM_segment", var_name="Age", value_name="pct"),
-        x="pct", y="FM_segment", color="Age", orientation="h",
-        color_discrete_sequence=SEQ,
-        category_orders={"FM_segment": seg_order, "Age": AGE_ORDER},
+    sc1, sc2 = st.columns(2)
+
+    spend_seg = (
+        df_f.groupby("FM_segment")["monthly_spend"].mean()
+        .reindex(seg_order).reset_index()
     )
-    fig.update_layout(base_layout(title="Age mix per segment (%)", height=360,
-                                  barmode="stack", xaxis_title="% of segment", yaxis_title=""))
-    dc1.plotly_chart(fig, use_container_width=True)
-
-    gen_mix = pd.crosstab(df_f["FM_segment"], df_f["Gender"], normalize="index") * 100
-    fig = px.bar(
-        gen_mix.reset_index().melt(id_vars="FM_segment", var_name="Gender", value_name="pct"),
-        x="pct", y="FM_segment", color="Gender", orientation="h",
-        color_discrete_sequence=[PALETTE["merlot"], PALETTE["rose"]],
-        category_orders={"FM_segment": seg_order},
+    spend_seg.columns = ["Segment", "avg_monthly_spend"]
+    fig_sp = px.bar(
+        spend_seg, x="avg_monthly_spend", y="Segment", orientation="h",
+        color="Segment", color_discrete_map=SEGMENT_COLORS,
+        text=spend_seg["avg_monthly_spend"].apply(lambda v: f"€{v:.0f}"),
     )
-    fig.update_layout(base_layout(title="Gender mix per segment (%)", height=360,
-                                  barmode="stack", xaxis_title="% of segment", yaxis_title=""))
-    dc2.plotly_chart(fig, use_container_width=True)
+    fig_sp.update_traces(textposition="outside", textfont=dict(color=PALETTE["charcoal"]))
+    fig_sp.update_layout(base_layout(
+        title="Avg monthly spend per segment",
+        height=320, showlegend=False,
+        xaxis_title="€ / month (avg per customer)", yaxis_title="",
+    ))
+    sc1.plotly_chart(fig_sp, use_container_width=True)
 
-
-def _render_spend_tiers_view(df_f: pd.DataFrame) -> None:
-    """Render the K-Prototypes spend-tier clustering view.
-
-    Mixed-type clustering: Hamming distance on six categorical features
-    (frequency, payment, occasion, deli, gender, age) + Euclidean on
-    Ticket. Default K=3 → Entry / Core / Premium spend tiers. Falls back
-    to K-Means on one-hot encoded features if the `kmodes` package is
-    unavailable, with a visible warning to the user.
-    """
-    if KPROTOTYPES_OK:
-        st.caption(
-            "K-Prototypes is the proper algorithm for this mixed-type data: "
-            "Hamming distance on the six categorical attributes, Euclidean on "
-            "the single numeric attribute (Ticket). Default K=3 gives the "
-            "**Entry / Core / Premium** spend tiers."
-        )
-    else:
-        st.warning(
-            "`kmodes` is not installed — falling back to K-Means on one-hot "
-            "encoded features (distorts categorical distances but still useful "
-            "as a directional view). For the proper algorithm: "
-            "`pip install kmodes`."
-        )
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        k = st.slider("Number of spend tiers (K)", 2, 6, 3,
-                      help="K=3 produces the canonical Entry / Core / Premium "
-                           "framing used in the executive report.")
-        st.info(f"Algorithm: **{'K-Prototypes' if KPROTOTYPES_OK else 'K-Means (fallback)'}**")
-
-    # Elbow + silhouette diagnostics
-    ks, inertias, sils = spend_tier_diagnostics(df_f)
-    diag = make_subplots(specs=[[{"secondary_y": True}]])
-    diag.add_trace(go.Scatter(x=ks, y=inertias, name="Inertia (elbow)",
-                              line=dict(color=PALETTE["burgundy"], width=3),
-                              mode="lines+markers"), secondary_y=False)
-    diag.add_trace(go.Scatter(x=ks, y=sils, name="Silhouette",
-                              line=dict(color=PALETTE["gold"], width=3, dash="dot"),
-                              mode="lines+markers"), secondary_y=True)
-    diag.update_layout(base_layout(title="K-selection diagnostics for spend tiers",
-                                   height=340))
-    diag.update_xaxes(title="K (clusters)")
-    diag.update_yaxes(title="Inertia ↓ (tighter)", secondary_y=False)
-    diag.update_yaxes(title="Silhouette ↑ (cleaner)", secondary_y=True)
-    c2.plotly_chart(diag, use_container_width=True)
-
-    # Fit at chosen K, name by spend, summarise
-    labels = fit_clusters(df_f, k=k)
-    df_c = df_f.copy()
-    df_c["cluster_id"]   = labels
-    df_c["cluster_name"] = df_c["cluster_id"].map(name_clusters_by_spend(df_c, "cluster_id"))
-
-    csum = (df_c.groupby("cluster_name").agg(
-                Customers=("ID", "count"),
-                Avg_ticket=("Ticket", "mean"),
-                Min_ticket=("Ticket", "min"),
-                Max_ticket=("Ticket", "max"),
-                Avg_visits=("monthly_visits", "mean"),
-                Annual_rev=("est_annual_revenue", "sum"),
-            )
-            .reset_index()
-            .sort_values("Avg_ticket"))
-    csum["Avg_ticket"] = csum["Avg_ticket"].round(1)
-    csum["Avg_visits"] = csum["Avg_visits"].round(1)
-    csum["Annual_rev"] = (csum["Annual_rev"] / 1000).round(0).astype(int).astype(str) + "K"
-    csum.columns = ["Tier", "Customers", "Avg ticket (€)", "Min ticket",
-                    "Max ticket", "Avg visits/mo", "Annual revenue (€)"]
-    st.markdown("**Spend-tier summary**")
-    st.dataframe(csum, hide_index=True, use_container_width=True)
-
-    # Scatter + size pie side-by-side
-    cv1, cv2 = st.columns(2)
-    fig = px.scatter(
-        df_c, x="monthly_visits", y="Ticket", color="cluster_name",
-        color_discrete_sequence=SEQ,
-        hover_data=["Age", "Gender", "Additional products", "Place to drink"],
-        labels={"monthly_visits": "Visits / month", "Ticket": "Avg ticket (€)"},
-        opacity=0.75,
+    prem_seg = (
+        df_f.groupby("FM_segment")
+        .apply(lambda g: (g["deli_tier"] == "Premium").mean() * 100)
+        .reindex(seg_order).reset_index()
     )
-    fig.update_layout(base_layout(
-        title="Spend tiers projected onto Frequency × Ticket", height=420))
-    cv1.plotly_chart(fig, use_container_width=True)
+    prem_seg.columns = ["Segment", "pct_premium"]
+    fig_pr = px.bar(
+        prem_seg, x="pct_premium", y="Segment", orientation="h",
+        color="Segment", color_discrete_map=SEGMENT_COLORS,
+        text=prem_seg["pct_premium"].apply(lambda v: f"{v:.0f}%"),
+    )
+    fig_pr.update_traces(textposition="outside", textfont=dict(color=PALETTE["charcoal"]))
+    fig_pr.update_layout(base_layout(
+        title="% choosing premium deli per segment",
+        height=320, showlegend=False,
+        xaxis=dict(range=[0, 65], ticksuffix="%", title="% of segment"),
+        yaxis_title="",
+    ))
+    sc2.plotly_chart(fig_pr, use_container_width=True)
 
-    sizes = df_c["cluster_name"].value_counts().reset_index()
-    sizes.columns = ["Tier", "Customers"]
-    fig = px.pie(sizes, values="Customers", names="Tier", hole=0.5,
-                 color_discrete_sequence=SEQ)
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(base_layout(title="Spend-tier sizes", height=420,
-                                  showlegend=False))
-    cv2.plotly_chart(fig, use_container_width=True)
-
-    # FM × spend-tier cross-tab
-    st.markdown("**Do the spend tiers validate the FM revenue segments?**")
-    fm_order = ["Champions", "Loyal Regulars", "Occasion Splurgers", "Casual Visitors"]
-    ct = pd.crosstab(df_c["FM_segment"], df_c["cluster_name"])
-    ct = ct.reindex(index=fm_order, fill_value=0)
-    fig = px.imshow(ct, text_auto=True, aspect="auto",
-                    color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["burgundy"]]],
-                    labels=dict(x="Spend tier", y="FM segment", color="Customers"))
-    fig.update_layout(base_layout(title="FM segment × spend tier cross-tab", height=340))
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown(callout(
-        "🧭", "How to read this view",
-        "<b>Spend tiers</b> are a value-anchored sanity check on the FM segmentation. "
-        "If a tier maps cleanly onto Champions+Occasion Splurgers (the high-monetary "
-        "FM quadrants), spend is doing the heavy lifting in FM and the framework "
-        "is solid. A messy cross-tab — like the one above — means FM combines spend "
-        "AND frequency, while the spend-tier model only sees spend. <br><br>"
-        "<i>Methodological note:</i> on this dataset K-Prototypes mostly "
-        "rediscovers ticket-anchored tiers, because the categorical features are "
-        "near-uniformly distributed across customers and Ticket is the dominant "
-        "differentiating signal. The behavioural K-Means lens (toggle above) "
-        "was therefore added to find lifestyle archetypes that are independent "
-        "of how much each customer pays per visit. "
-        "We keep both because they answer different questions."
-    ), unsafe_allow_html=True)
 
 
 def render_behavioral(df_f: pd.DataFrame) -> None:
-    """Render the ML Clustering tab — two complementary unsupervised lenses.
-
-    A radio toggle at the top selects between:
-      - Behavioural archetypes (K-Means K=4 on frequency × sociality),
-        which answer *how* customers buy and are independent of ticket
-        value (default view).
-      - Spend tiers (K-Prototypes on the full mixed-type feature set),
-        which answer *how much* customers buy and serve as a
-        value-anchored sanity check on the FM segmentation.
-
-    Both lenses coexist because they answer different business questions
-    and the manager benefits from holding both in mind.
-    """
-    st.subheader("ML Clustering — two complementary lenses on the customer base")
+    """K-Means K=4 behavioral archetypes on frequency × sociality."""
+    st.subheader("Behavioral Clustering")
     st.caption(
-        "Two unsupervised approaches on the same survey data. "
-        "**Behavioral archetypes** capture *how* customers buy (frequency × sociality, "
-        "ignoring ticket); **spend tiers** capture *how much* they buy (clusters across "
-        "the full mixed-type feature set, anchored by ticket). Toggle below."
+        "K-Means K=4 on visit frequency × sociality score. "
+        "Ticket is intentionally excluded — a Kruskal-Wallis test confirms it does not "
+        "differ significantly across these groups (p ≈ 0.58). "
+        "These archetypes answer *how* customers buy, complementing the FM revenue lens."
     )
-
-    view = st.radio(
-        "Clustering lens",
-        ["🧑‍🤝‍🧑 Behavioral archetypes (K-Means · freq × sociality)",
-         "💰 Spend tiers (K-Prototypes · mixed feature set)"],
-        horizontal=True, label_visibility="collapsed",
-    )
-    if view.startswith("💰"):
-        _render_spend_tiers_view(df_f)
-        return
-
-    # ===== Behavioural archetypes view (default) ===========================
     labels = fit_behavioral_clusters(df_f)
     df_b = df_f.copy()
     df_b["beh_id"] = labels
@@ -1020,7 +864,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     # ---- Segment cards ----
     bsummary = df_b.groupby("beh_segment").agg(
         customers=("ID", "count"),
-        avg_ticket=("Ticket", "mean"),
+        avg_monthly_spend=("monthly_spend", "mean"),
         avg_visits=("monthly_visits", "mean"),
         avg_social=("social_score", "mean"),
         revenue=("est_annual_revenue", "sum"),
@@ -1046,7 +890,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
                 <p style='font-size:11px; color:{PALETTE["charcoal"]}; margin:8px 0; min-height:44px;'>{meta["summary"]}</p>
                 <hr style='margin:6px 0; border:none; border-top:1px solid #EEE;'>
                 <p style='margin:3px 0; font-size:12px;'><b>{int(row["customers"])}</b> customers</p>
-                <p style='margin:3px 0; font-size:12px;'>Avg ticket: <b>€{row["avg_ticket"]:.0f}</b></p>
+                <p style='margin:3px 0; font-size:12px;'>Avg monthly spend: <b>€{row["avg_monthly_spend"]:.0f}</b></p>
                 <p style='margin:3px 0; font-size:12px;'>Visits/mo: <b>{row["avg_visits"]:.1f}</b></p>
                 <p style='margin:3px 0; font-size:12px;'>Sociality: <b>{row["avg_social"]:.1f} / 7</b></p>
             </div>
@@ -1084,7 +928,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(callout(
-        "💡", "Why ticket is NOT on this chart",
+        "", "Why ticket is NOT on this chart",
         "Ticket price is deliberately excluded. A Kruskal-Wallis test confirms it "
         "is <b>not</b> significantly different across these four groups (p ≈ 0.58). "
         "That's the whole point: FM tells you who's worth the most, "
@@ -1092,7 +936,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     ), unsafe_allow_html=True)
 
     # ---- Diagnostics (collapsed) ----
-    with st.expander("📐 K-selection diagnostics — elbow & silhouette"):
+    with st.expander("K-selection diagnostics — elbow & silhouette"):
         ks, inertias, sils = behavioral_diagnostics(df_f)
         diag = make_subplots(specs=[[{"secondary_y": True}]])
         diag.add_trace(go.Scatter(x=ks, y=inertias, name="Inertia (elbow)",
@@ -1127,8 +971,27 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
                                   height=340))
     st.plotly_chart(fig, use_container_width=True)
 
+    # ---- Avg monthly spend per behavioral segment ----
+    spend_beh = (
+        df_b.groupby("beh_segment")["monthly_spend"].mean()
+        .reindex(beh_order).reset_index()
+    )
+    spend_beh.columns = ["Segment", "avg_monthly_spend"]
+    fig_sp = px.bar(
+        spend_beh, x="avg_monthly_spend", y="Segment", orientation="h",
+        color="Segment", color_discrete_map=BEHAVIORAL_COLORS,
+        text=spend_beh["avg_monthly_spend"].apply(lambda v: f"€{v:.0f}"),
+    )
+    fig_sp.update_traces(textposition="outside", textfont=dict(color=PALETTE["charcoal"]))
+    fig_sp.update_layout(base_layout(
+        title="Avg monthly spend per behavioral segment",
+        height=320, showlegend=False,
+        xaxis_title="€ / month (avg per customer)", yaxis_title="",
+    ))
+    st.plotly_chart(fig_sp, use_container_width=True)
+
     # ---- Deli mix per behavioral segment ----
-    st.markdown("**Deli product mix per behavioral segment**")
+    st.markdown("**Product mix per behavioral segment**")
     prod = (df_b.groupby(["beh_segment", "Additional products"]).size()
                  .reset_index(name="customers"))
     fig = px.bar(prod, x="customers", y="beh_segment", color="Additional products",
@@ -1153,7 +1016,7 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(callout(
-        "📌", "Daily Home Drinkers — the hidden opportunity",
+        "", "Daily Home Drinkers — the hidden opportunity",
         "62 % female, near-daily visits, average ticket identical to the base — "
         "yet almost entirely absent from the deli. They're buying wine on autopilot. "
         "A shelf-talker pairing suggestion and a midweek 'tonight's pairing' message "
@@ -1211,7 +1074,7 @@ def render_products(df_f: pd.DataFrame) -> None:
         )
         fig_pie.update_traces(
             textinfo="percent+label",
-            textfont=dict(size=15, family="Georgia, serif"),
+            textfont=dict(size=15, family="Georgia, serif", color="white"),
             pull=[0.03, 0.03],
         )
         fig_pie.update_layout(
@@ -1487,7 +1350,7 @@ def render_products(df_f: pd.DataFrame) -> None:
             opacity=0.88,
             text=[f"{v:.0f}%" for v in age_prem],
             textposition="outside",
-            textfont=dict(size=13),
+            textfont=dict(size=13, color=PALETTE["charcoal"]),
             width=0.45,
         ))
         fig_age.add_trace(go.Bar(
@@ -1498,7 +1361,7 @@ def render_products(df_f: pd.DataFrame) -> None:
             opacity=0.88,
             text=[f"{v:.0f}%" for v in age_entry],
             textposition="outside",
-            textfont=dict(size=13),
+            textfont=dict(size=13, color=PALETTE["charcoal"]),
             width=0.45,
         ))
         fig_age.update_layout(
@@ -1524,32 +1387,26 @@ def render_products(df_f: pd.DataFrame) -> None:
 
     with col_age2:
         age_ticket = [df_f[df_f["Age"]==a]["Ticket"].mean() for a in AGE_ORDER]
-        age_counts  = [df_f[df_f["Age"]==a]["Ticket"].count() for a in AGE_ORDER]
-
-        fig_age_tkt = go.Figure()
-        fig_age_tkt.add_trace(go.Scatter(
+        hm_data = np.array([[v if not np.isnan(v) else 0 for v in age_ticket]])
+        fig_age_tkt = px.imshow(
+            hm_data,
             x=age_labels,
-            y=age_ticket,
-            mode="lines+markers+text",
-            line=dict(color=PALETTE["burgundy"], width=3),
-            marker=dict(size=12, color=PALETTE["burgundy"],
-                        line=dict(width=2, color="white")),
-            text=[f"€{v:.0f}" for v in age_ticket],
-            textposition="top center",
-            textfont=dict(size=13, color=PALETTE["charcoal"]),
-            showlegend=False,
-        ))
+            y=["Avg ticket (€)"],
+            color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["burgundy"]]],
+            text_auto=False,
+            aspect="auto",
+        )
+        fig_age_tkt.update_traces(
+            text=[[f"€{v:.0f}" for v in age_ticket]],
+            texttemplate="%{text}",
+            textfont=dict(size=14, color=PALETTE["charcoal"]),
+        )
         fig_age_tkt.update_layout(
-            base_layout(
-                title="Average ticket by age group",
-                height=380,
-            ),
-            xaxis=dict(tickfont=dict(size=14), title="Age group",
-                       title_font=dict(size=13)),
-            yaxis=dict(range=[50, 62], tickprefix="€",
-                       title="Average ticket (€)", title_font=dict(size=13),
-                       tickfont=dict(size=12)),
-            margin=dict(t=60, b=50, l=60, r=20),
+            base_layout(title="Avg ticket by age group", height=200),
+            xaxis=dict(tickfont=dict(size=13), title=""),
+            yaxis=dict(tickfont=dict(size=12), title=""),
+            coloraxis_showscale=False,
+            margin=dict(t=50, b=20, l=10, r=10),
         )
         st.plotly_chart(fig_age_tkt, use_container_width=True)
 
@@ -1722,7 +1579,7 @@ def render_actions(df_f: pd.DataFrame) -> None:
     st.subheader("Strategic Action Plan")
     st.caption("Concrete marketing playbook per segment — your prioritised to-do list.")
 
-    lens = st.radio("Segmentation lens", ["FM (revenue)", "Behavioral (how they buy)"],
+    lens = st.radio("Segmentation lens", ["Behavioral (how they buy)", "FM (revenue)"],
                     horizontal=True)
 
     if lens == "FM (revenue)":
@@ -1782,7 +1639,7 @@ def render_actions(df_f: pd.DataFrame) -> None:
     st.markdown(f"""
     <div style='background: {PALETTE["merlot"]}; color: white; padding: 18px 22px;
                 border-radius: 8px; margin-top: 14px;'>
-        <strong>🍷 Cross-cutting priority</strong><br>
+        <strong>Cross-cutting priority</strong><br>
         Address the delicatessen perception gap. Olives dominate the deli mix and premium
         adoption is uneven across all segments. A simple <b>wine + deli pairing display
         at eye level</b> and staff trained to suggest one product match per purchase could
@@ -1841,7 +1698,7 @@ def render_explorer(df_f: pd.DataFrame) -> None:
 
     csv = df_show.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "⬇️ Download as CSV",
+        "Download as CSV",
         data=csv,
         file_name="wine_shop_customers_filtered.csv",
         mime="text/csv",
@@ -1864,44 +1721,59 @@ def render_overview(df_f: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
 
+    # Compute behavioral clusters for this view
+    _ov_labels = fit_behavioral_clusters(df_f)
+    df_ov = df_f.copy()
+    df_ov["beh_id"] = _ov_labels
+    df_ov["beh_segment"] = df_ov["beh_id"].map(name_behavioral_clusters(df_ov, "beh_id"))
+
+    avg_monthly_spend = (df_f["monthly_spend"].mean()
+                         if "monthly_spend" in df_f.columns
+                         else df_f["Ticket"].mean())
+
     st.markdown(" ")
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(kpi_card("Customers surveyed", f"{len(df_f):,}"), unsafe_allow_html=True)
-    c2.markdown(kpi_card("Avg ticket", f"{df_f['Ticket'].mean():.0f}", "€"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Avg monthly spend", f"{avg_monthly_spend:.0f}", "€"), unsafe_allow_html=True)
     c3.markdown(kpi_card("Est. annual revenue", f"{df_f['est_annual_revenue'].sum()/1000:.0f}K", "€"), unsafe_allow_html=True)
-    c4.markdown(kpi_card("FM segments", f"{df_f['FM_segment'].nunique()}"), unsafe_allow_html=True)
+    c4.markdown(kpi_card("Behavioral segments", f"{df_ov['beh_segment'].nunique()}"), unsafe_allow_html=True)
 
     st.markdown(" ")
     col_a, col_b = st.columns(2)
 
-    seg = df_f["FM_segment"].value_counts().reset_index()
-    seg.columns = ["Segment", "Customers"]
-    fig = px.pie(seg, values="Customers", names="Segment", hole=0.55,
-                 color="Segment", color_discrete_map=SEGMENT_COLORS)
-    fig.update_traces(textinfo="percent+label", textfont_size=12)
-    fig.update_layout(base_layout(title="Customer share by FM segment",
+    beh_order_ov = ["Social Regulars", "Daily Home Drinkers",
+                    "Occasion Celebrants", "Casual Home Drinkers"]
+    seg_beh = df_ov["beh_segment"].value_counts().reset_index()
+    seg_beh.columns = ["Segment", "Customers"]
+    fig = px.pie(seg_beh, values="Customers", names="Segment", hole=0.55,
+                 color="Segment", color_discrete_map=BEHAVIORAL_COLORS)
+    fig.update_traces(textinfo="percent+label", textfont=dict(size=12, color="white"))
+    fig.update_layout(base_layout(title="Customer share by behavioral segment",
                                   showlegend=False, height=400))
     col_a.plotly_chart(fig, use_container_width=True)
 
-    rev = (df_f.groupby("FM_segment")["est_annual_revenue"].sum()
-                .sort_values().reset_index())
-    rev["share"] = rev["est_annual_revenue"] / rev["est_annual_revenue"].sum() * 100
-    fig2 = px.bar(rev, x="est_annual_revenue", y="FM_segment", orientation="h",
-                  color="FM_segment", color_discrete_map=SEGMENT_COLORS,
-                  text=rev["share"].apply(lambda x: f"{x:.0f}%"))
-    fig2.update_traces(textposition="outside")
-    fig2.update_layout(base_layout(title="Estimated annual revenue contribution",
-                                   xaxis_title="€ / year", yaxis_title="",
+    spend_beh = (df_ov.groupby("beh_segment")["monthly_spend"].mean()
+                      .reindex(beh_order_ov).dropna().reset_index())
+    spend_beh.columns = ["Segment", "avg_monthly_spend"]
+    spend_beh = spend_beh.sort_values("avg_monthly_spend")
+    fig2 = px.bar(spend_beh, x="avg_monthly_spend", y="Segment", orientation="h",
+                  color="Segment", color_discrete_map=BEHAVIORAL_COLORS,
+                  text=spend_beh["avg_monthly_spend"].apply(lambda x: f"€{x:.0f}"))
+    fig2.update_traces(textposition="outside", textfont=dict(color=PALETTE["charcoal"]))
+    fig2.update_layout(base_layout(title="Avg monthly spend per behavioral segment",
+                                   xaxis_title="€ / month", yaxis_title="",
                                    showlegend=False, height=400))
     col_b.plotly_chart(fig2, use_container_width=True)
 
-    top_seg = rev.iloc[-1]
-    pct_customers = (df_f["FM_segment"] == top_seg["FM_segment"]).mean() * 100
+    top_beh = spend_beh.iloc[-1]
+    low_beh = spend_beh.iloc[0]
     st.markdown(callout(
-        "🍇", "Headline finding",
-        f"<b>{top_seg['FM_segment']}</b> represent {pct_customers:.0f}% of customers "
-        f"but contribute <b>{top_seg['share']:.0f}%</b> of estimated annual revenue. "
-        f"Protecting this group is the single highest-priority action."
+        "", "Headline finding",
+        f"<b>{top_beh['Segment']}</b> spend an average of <b>€{top_beh['avg_monthly_spend']:.0f}/month</b> — "
+        f"{top_beh['avg_monthly_spend']/low_beh['avg_monthly_spend']:.1f}× more than "
+        f"<b>{low_beh['Segment']}</b> (€{low_beh['avg_monthly_spend']:.0f}/month). "
+        f"The biggest opportunity is converting casual visitors into regular drinkers — "
+        f"no new customers needed."
     ), unsafe_allow_html=True)
 
     # ---- What-If simulator ----
@@ -1933,7 +1805,7 @@ def render_overview(df_f: pd.DataFrame) -> None:
     rc2.metric("Simulated annual revenue", f"€{sim_rev/1000:.0f}K", f"€{delta/1000:+.0f}K")
     rc3.metric("Uplift", f"{delta_pct:+.1f}%")
 
-    with st.expander("📐 How the simulator works · assumptions & formula"):
+    with st.expander("How the simulator works · assumptions & formula"):
         st.markdown(f"""
 **Core formula:** `annual_revenue = ticket × visits_per_month × 12`
 
@@ -1981,7 +1853,7 @@ def main() -> None:
     # ---- Sidebar: global filters ----
     with st.sidebar:
         st.markdown(
-            f"<h2 style='color:{PALETTE['burgundy']};'>🍷 Wine Shop</h2>",
+            f"<h2 style='color:{PALETTE['burgundy']};'>Wine Shop</h2>",
             unsafe_allow_html=True,
         )
         st.markdown(
@@ -2008,25 +1880,24 @@ def main() -> None:
         )
 
         st.markdown("---")
-        with st.expander("ℹ️ Visits/month assumptions"):
+        with st.expander("Visits/month assumptions"):
             st.caption("Used for the annual revenue estimate.")
             for label in FREQ_ORDER:
                 st.caption(f"• {label} → ~{FREQ_VISITS_PER_MONTH[label]} visits/mo")
 
-        with st.expander("📖 About"):
+        with st.expander("About"):
             st.caption(
                 "Built on a 404-customer survey for the Wine Shop & Delicatessen case "
                 "(Advanced Programming with Python — ESADE MSc Business Analytics). "
                 "FM segmentation is the primary revenue lens; behavioral K-Means "
-                "reveals how each group actually buys; K-Prototypes spend tiers "
-                "provide a secondary value-anchored validation."
+                "reveals how each group actually buys."
             )
             st.caption(
                 "**Team:** Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · "
                 "Patricia Unger"
             )
 
-        with st.expander("⚠️ Data caveats"):
+        with st.expander("Data caveats"):
             st.caption(
                 "**Ticket = value per visit (assumed).** The survey gives one ticket "
                 "value per customer; we assume that figure is the customer's *typical* "
@@ -2056,7 +1927,7 @@ def main() -> None:
     st.markdown(f"""
     <div style='border-bottom: 3px solid {PALETTE["burgundy"]}; padding-bottom: 10px;
                 margin-bottom: 18px;'>
-        <h1 style='margin: 0;'>🍷 Wine Shop & Delicatessen</h1>
+        <h1 style='margin: 0;'>Wine Shop & Delicatessen</h1>
         <p style='margin: 4px 0 0 0; color: {PALETTE["charcoal"]}; font-style: italic;'>
             Strategic Customer Intelligence · {len(df_f)} of {len(df)} customers in view
         </p>
@@ -2080,7 +1951,7 @@ def main() -> None:
     tabs = st.tabs([
         "Customer Profile",      # who they are (+ explorer)
         "FM Segments",           # group by revenue value
-        "Behavioral Segments",   # two ML lenses (behavioral + spend tiers)
+        "Behavioral Segments",   # K-Means behavioral archetypes
         "Customer Behaviour",           # what they buy
         "Strategic Overview",    # synthesis + What-If simulator
         "Action Plan",           # the close — what to do
@@ -2092,7 +1963,7 @@ def main() -> None:
         # (drilling from aggregate profile down to individuals is a natural
         # continuation of this tab's content).
         st.markdown("---")
-        with st.expander("🔎 Drill into individual customers — Customer Explorer"):
+        with st.expander("Drill into individual customers — Customer Explorer"):
             render_explorer(df_f)
         _next_tab_hint(
             "Now that we know who walks through the door, the next tab — "
@@ -2104,8 +1975,7 @@ def main() -> None:
         _next_tab_hint(
             "FM uses a deterministic median split. The next tab — "
             "<b>Behavioral Segments</b> — lets the data group customers "
-            "without any rules, using two complementary unsupervised lenses "
-            "(behavioral archetypes + spend tiers)."
+            "without any rules, using K-Means behavioral archetypes."
         )
     with tabs[2]:
         render_behavioral(df_f)

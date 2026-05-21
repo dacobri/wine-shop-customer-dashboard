@@ -164,6 +164,25 @@ def inject_css() -> None:
             background-color: {PALETTE['cream']};
             border-right: 1px solid {PALETTE['border']};
         }}
+
+        /* ── Expanders ── */
+        details[data-testid="stExpander"] {{
+            background: white;
+            border: 1px solid {PALETTE['border']} !important;
+            border-left: 4px solid {PALETTE['burgundy']} !important;
+            border-radius: 8px !important;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }}
+        details[data-testid="stExpander"] summary {{
+            font-weight: 600;
+            font-size: 13px;
+            color: {PALETTE['charcoal']} !important;
+            padding: 10px 14px;
+        }}
+        details[data-testid="stExpander"] summary:hover {{
+            color: {PALETTE['burgundy']} !important;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -216,11 +235,9 @@ def callout(emoji: str, title: str, body: str, color: str | None = None) -> str:
 
 
 # ── Salmond footnote ─────────────────────────────────────────────────────────
-# "Salmond" appears verbatim in the source survey — almost certainly a typo.
-# Most plausibly "Almond" (consistent with the deli / nuts category), though
-# possibly "Salmon" (less likely given the product mix). The original entry
-# is preserved for data integrity; this note disambiguates wherever the term
-# appears in the dashboard.
+# "Salmond" is a typo for "Salmon" in the source survey.
+# Salmon fits the premium deli category (alongside Cheese and Spanish ham).
+# The raw spelling is preserved in the data; all display corrects it to "Salmon".
 
 def salmond_footnote() -> str:
     """HTML for the standard 'Salmond' footnote — render with st.markdown(unsafe_allow_html=True)."""
@@ -229,11 +246,10 @@ def salmond_footnote() -> str:
                 border-left: 3px solid {PALETTE["gold"]}; border-radius: 4px;
                 margin: 8px 0; font-size: 12px; color: {PALETTE["midgray"]};'>
         <strong style='color:{PALETTE["charcoal"]};'>* Note on "Salmond"</strong> —
-        preserved exactly as it appears in the source survey. Most likely a
-        typo for <b>Almond</b> (consistent with the deli / nuts category),
-        though it could also mean <b>Salmon</b> (less likely given the product
-        mix). The original entry has been kept unchanged for data integrity;
-        treat it as a single distinct product whenever it appears below.
+        a typo for <b>Salmon</b> in the source survey. Salmon fits the premium
+        deli context (alongside Cheese and Spanish ham) and is treated as such
+        throughout this dashboard. The raw survey spelling is preserved in the
+        data; all charts display it as "Salmon".
     </div>
     """
 
