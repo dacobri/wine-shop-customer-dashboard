@@ -166,21 +166,26 @@ def inject_css() -> None:
         }}
 
         /* ── Expanders ── */
-        details[data-testid="stExpander"] {{
-            background: white;
+        details[data-testid="stExpander"],
+        div[data-testid="stExpander"],
+        .streamlit-expanderHeader {{
+            background: white !important;
             border: 1px solid {PALETTE['border']} !important;
             border-left: 4px solid {PALETTE['burgundy']} !important;
             border-radius: 8px !important;
             margin-bottom: 12px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.04);
         }}
-        details[data-testid="stExpander"] summary {{
-            font-weight: 600;
-            font-size: 13px;
+        details[data-testid="stExpander"] summary,
+        div[data-testid="stExpander"] > div:first-child,
+        .streamlit-expanderHeader > div {{
+            font-weight: 600 !important;
+            font-size: 13px !important;
             color: {PALETTE['charcoal']} !important;
-            padding: 10px 14px;
+            padding: 10px 14px !important;
         }}
-        details[data-testid="stExpander"] summary:hover {{
+        details[data-testid="stExpander"] summary:hover,
+        div[data-testid="stExpander"] > div:first-child:hover {{
             color: {PALETTE['burgundy']} !important;
         }}
     </style>
@@ -199,9 +204,11 @@ def base_layout(**overrides) -> dict:
         title=dict(font=dict(size=14, color=PALETTE["burgundy"],
                              family="Georgia, serif")),
         xaxis=dict(gridcolor="#F0EBE3", linecolor="#D0C8C0",
-                   tickfont=dict(color=PALETTE["charcoal"])),
+                   tickfont=dict(color=PALETTE["charcoal"]),
+                   title_font=dict(color=PALETTE["charcoal"])),
         yaxis=dict(gridcolor="#F0EBE3", linecolor="#D0C8C0",
-                   tickfont=dict(color=PALETTE["charcoal"])),
+                   tickfont=dict(color=PALETTE["charcoal"]),
+                   title_font=dict(color=PALETTE["charcoal"])),
         legend=dict(bgcolor="rgba(0,0,0,0)",
                     font=dict(color=PALETTE["charcoal"])),
         margin=dict(t=48, b=36, l=40, r=20),

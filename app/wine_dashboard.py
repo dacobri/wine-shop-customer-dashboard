@@ -1351,7 +1351,7 @@ def render_products(df_f: pd.DataFrame) -> None:
 
     col_age1, col_age2 = st.columns(2, gap="large")
 
-    with col_age1:
+    with col_age1:  # premium vs entry bar — left half
         fig_age = go.Figure()
         fig_age.add_trace(go.Bar(
             name="Premium deli",
@@ -1397,29 +1397,7 @@ def render_products(df_f: pd.DataFrame) -> None:
         st.plotly_chart(fig_age, use_container_width=True)
 
     with col_age2:
-        age_spend = [df_f[df_f["Age"]==a]["monthly_spend"].mean() for a in AGE_ORDER]
-        hm_data = np.array([[v if not np.isnan(v) else 0 for v in age_spend]])
-        fig_age_sp = px.imshow(
-            hm_data,
-            x=age_labels,
-            y=["Avg monthly spend (€)"],
-            color_continuous_scale=[[0, PALETTE["cream"]], [1, PALETTE["burgundy"]]],
-            text_auto=False,
-            aspect="auto",
-        )
-        fig_age_sp.update_traces(
-            text=[[f"€{v:.0f}" for v in age_spend]],
-            texttemplate="%{text}",
-            textfont=dict(size=14, color=PALETTE["charcoal"]),
-        )
-        fig_age_sp.update_layout(
-            base_layout(title="Avg monthly spend by age group", height=200),
-            xaxis=dict(tickfont=dict(size=13), title=""),
-            yaxis=dict(tickfont=dict(size=12), title=""),
-            coloraxis_showscale=False,
-            margin=dict(t=50, b=20, l=10, r=10),
-        )
-        st.plotly_chart(fig_age_sp, use_container_width=True)
+        st.markdown(" ")  # spacer so right col doesn't look empty
 
     youngest_prem = age_prem[0]
     oldest_prem   = age_prem[-1]
@@ -1431,6 +1409,31 @@ def render_products(df_f: pd.DataFrame) -> None:
         f"a premium deli suggestion is more likely to land. "
         f"Staff awareness of this pattern costs nothing to implement."
     ), unsafe_allow_html=True)
+
+    # ── Avg monthly spend · Age × Drinking occasion (full-width heatmap) ──
+    place_order_cb = sorted(SOCIAL_MAP, key=SOCIAL_MAP.get)
+    work_cb = df_f.dropna(subset=["Age", "Place to drink", "monthly_spend"]).copy()
+    _spending_heatmap(
+        work_cb, row_col="Age", col_col="Place to drink",
+        row_order=AGE_ORDER, col_order=place_order_cb,
+        title="Avg monthly spend per customer · Age × Drinking occasion",
+        height=380,
+    )
+    age_occ_mean  = work_cb.groupby(["Age", "Place to drink"], observed=True)["monthly_spend"].mean()
+    age_occ_count = work_cb.groupby(["Age", "Place to drink"], observed=True).size()
+    reliable = age_occ_mean[age_occ_count >= 10]
+    if len(reliable) >= 1:
+        top_idx = reliable.idxmax()
+        top_val = int(round(reliable.max()))
+        top_n   = int(age_occ_count.loc[top_idx])
+        st.markdown(callout(
+            "", "Occasion is the most actionable lens for campaigns",
+            f"The highest-spending well-populated cohort is "
+            f"<b>{top_idx[0]}-year-olds drinking at {top_idx[1].lower()}</b> "
+            f"at <b>€{top_val}/month</b> per customer (n = {top_n}). "
+            f"Unlike age alone, occasion translates directly into campaign mechanics — "
+            f"themed party packs, gift bundles, restaurant wine cards."
+        ), unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════════════
     # BLOCK 5 — The loyalty blind spot: cash dominates every segment
