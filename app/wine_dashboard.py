@@ -1162,6 +1162,10 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
 
 
 def render_products(df_f: pd.DataFrame) -> None:
+    # Normalise raw survey spelling before any computation
+    df_f = df_f.copy()
+    df_f["Additional products"] = df_f["Additional products"].replace({"Salmond": "Salmon"})
+
     st.subheader("Customer Behaviour")
     st.markdown(
         "<p style='font-size:16px; color:#2B2118; line-height:1.7;'>"
