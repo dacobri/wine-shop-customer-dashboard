@@ -151,6 +151,8 @@ def render_profile(df_f: pd.DataFrame, df_all: pd.DataFrame) -> None:
     )
     _profile_relationship_strengths(df_f)
 
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
+
 
 # ── Hero ──────────────────────────────────────────────────────────────────
 
@@ -473,42 +475,6 @@ def _profile_spending_patterns(df: pd.DataFrame) -> None:
             f"not whole demographic dimensions."
         ), unsafe_allow_html=True)
 
-    st.markdown("&nbsp;", unsafe_allow_html=True)
-
-    # ── Heatmap 3: Age × Drinking occasion ──
-    # Occasion is the most marketing-actionable dimension — easy to design
-    # themed campaigns around (party packs, restaurant pairings, festive
-    # bundles). Combined with age band, the cells become directly targetable
-    # by channel (Instagram for parties / WhatsApp for couples / etc.).
-    place_order = sorted(SOCIAL_MAP, key=SOCIAL_MAP.get)  # private → social
-    _spending_heatmap(
-        work, row_col="Age", col_col="Place to drink",
-        row_order=AGE_ORDER, col_order=place_order,
-        title="Avg monthly spend per customer · Age × Drinking occasion",
-        height=380,
-    )
-
-    # Find the highest-value WELL-POPULATED cell (n ≥ 10) so the callout
-    # doesn't celebrate a fluke driven by 1–2 outlier customers.
-    age_occ_mean  = work.groupby(["Age", "Place to drink"], observed=True)["monthly_spend"].mean()
-    age_occ_count = work.groupby(["Age", "Place to drink"], observed=True).size()
-    reliable = age_occ_mean[age_occ_count >= 10]
-    if len(reliable) >= 1:
-        top_idx = reliable.idxmax()
-        top_val = int(round(reliable.max()))
-        top_n   = int(age_occ_count.loc[top_idx])
-        st.markdown(callout(
-            "", "Occasion is the most actionable lens for campaigns",
-            f"The highest-spending well-populated cohort is "
-            f"<b>{top_idx[0]}-year-olds drinking at {top_idx[1].lower()}</b> "
-            f"at <b>€{top_val}/month</b> per customer (n = {top_n}). "
-            f"Unlike education or age alone, occasion translates directly into "
-            f"campaign mechanics — themed party packs for the <b>Parties</b> cell, "
-            f"gift-ready bundles for <b>Birthday party</b>, restaurant wine cards "
-            f"for the <b>Restaurant</b> cell, romantic boxes for <b>With your couple</b>. "
-            f"Build the in-store displays around the strongest cells in this "
-            f"matrix, not around demographic averages."
-        ), unsafe_allow_html=True)
 
 
 def _spending_heatmap(df: pd.DataFrame, row_col: str, col_col: str,
@@ -1000,18 +966,22 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
     ))
     st.plotly_chart(fig_sp, use_container_width=True)
 
-    # ---- Deli mix per behavioral segment ----
-    st.markdown("**Product mix per behavioral segment**")
-    prod = (df_b.groupby(["beh_segment", "Additional products"]).size()
-                 .reset_index(name="customers"))
-    fig = px.bar(prod, x="customers", y="beh_segment", color="Additional products",
-                 orientation="h", color_discrete_sequence=SEQ,
-                 category_orders={"beh_segment": beh_order})
-    fig.update_layout(base_layout(title="What each behavioral group buys",
+    # ---- Deli mix per behavioral segment (Premium vs Entry) ----
+    st.markdown("**Premium vs Entry deli mix per behavioral segment**")
+    tier_df = df_b[df_b["deli_tier"].isin(["Premium", "Entry"])].copy()
+    prod = (tier_df.groupby(["beh_segment", "deli_tier"]).size()
+                    .reset_index(name="customers"))
+    fig = px.bar(prod, x="customers", y="beh_segment", color="deli_tier",
+                 orientation="h",
+                 color_discrete_map={"Premium": PALETTE["burgundy"],
+                                     "Entry":   PALETTE["gold"]},
+                 category_orders={"beh_segment": beh_order,
+                                  "deli_tier": ["Premium", "Entry"]})
+    fig.update_layout(base_layout(title="Premium vs Entry deli mix by behavioral group",
                                   height=380, barmode="stack",
-                                  xaxis_title="Customers", yaxis_title=""))
+                                  xaxis_title="Customers", yaxis_title="",
+                                  legend_title_text="Deli tier"))
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
     # ---- Gender split ----
     gen_mix = pd.crosstab(df_b["beh_segment"], df_b["Gender"], normalize="index") * 100
@@ -1033,6 +1003,8 @@ def render_behavioral(df_f: pd.DataFrame) -> None:
         "A shelf-talker pairing suggestion and a midweek 'tonight's pairing' message "
         "could shift this without any discount."
     ), unsafe_allow_html=True)
+
+    st.markdown(salmond_footnote(), unsafe_allow_html=True)
 
 
 def render_products(df_f: pd.DataFrame) -> None:
@@ -1349,9 +1321,9 @@ def render_products(df_f: pd.DataFrame) -> None:
         age_prem.append((sub["deli_tier"]=="Premium").mean()*100)
         age_entry.append((sub["deli_tier"]=="Entry").mean()*100)
 
-    col_age1, col_age2 = st.columns(2, gap="large")
+    col_age_l, col_age_mid, col_age_r = st.columns([1, 3, 1])
 
-    with col_age1:  # premium vs entry bar — left half
+    with col_age_mid:  # premium vs entry bar — centred
         fig_age = go.Figure()
         fig_age.add_trace(go.Bar(
             name="Premium deli",
@@ -1395,9 +1367,6 @@ def render_products(df_f: pd.DataFrame) -> None:
             margin=dict(t=50, b=50, l=60, r=120),
         )
         st.plotly_chart(fig_age, use_container_width=True)
-
-    with col_age2:
-        st.markdown(" ")  # spacer so right col doesn't look empty
 
     youngest_prem = age_prem[0]
     oldest_prem   = age_prem[-1]
@@ -1918,8 +1887,8 @@ def main() -> None:
                 "basket size on each visit, not a cumulative lifetime total."
             )
             st.caption(
-                "**Synthetic dataset.** The dataset is the ESADE *Analytics "
-                "and Big Data* class sample — it is synthetic data created for this course. "
+                "**Synthetic dataset.** This is a synthetic dataset created for "
+                "our course *Advanced Programming with Python*. "
                 "Some records contain unrealistic "
                 "combinations (e.g. customers visiting daily and spending €100 every "
                 "time — that's €36,000/year on wine and deli, which is implausible "

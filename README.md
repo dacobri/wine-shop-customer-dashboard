@@ -81,7 +81,7 @@ Python 3.11.
 
 | Tab | What it answers |
 |---|---|
-| 👥 **Customer Profile** | Who walks through the door? Demographics, gender × occasion signal, three spending heatmaps, hidden attribute relationships, **and an embedded Customer Explorer expander at the bottom** for filterable individual outreach lists (CSV export). |
+| 👥 **Customer Profile** | Who walks through the door? Demographics, gender × occasion signal, two spending heatmaps, hidden attribute relationships, **and an embedded Customer Explorer expander at the bottom** for filterable individual outreach lists (CSV export). |
 | 🎯 **FM Segments** | Which segment is worth what? Champions / Loyal Regulars / Occasion Splurgers / Casual Visitors. |
 | 🔬 **Behavioral Segments** | Two togglable ML lenses: behavioral archetypes (K-Means, default) and spend tiers (K-Prototypes). |
 | 🧀 **Product Mix** | Where's the cross-sell opportunity? The delicatessen gap. |
@@ -140,11 +140,11 @@ Visits/month converts verbal frequency categories ("1 to 2 times per week"
 
 ## Data caveats
 
-The dataset is the ESADE *Analytics and Big Data* case-study sample. It is
-synthetic / case-study data, not real POS records. A handful of rows
-contain unrealistic combinations (customers visiting daily at €100 tickets
-≈ €36k/year on wine). We surface these as-is rather than clipping — the
-segmentation methodology would be re-fit on real POS data when available.
+This is a synthetic dataset created for our course *Advanced Programming
+with Python*. A handful of rows contain unrealistic combinations
+(customers visiting daily at €100 tickets ≈ €36k/year on wine). We surface
+these as-is rather than clipping — the segmentation methodology would be
+re-fit on real POS data when available.
 
 The "Salmond" entry in *Additional products* is preserved verbatim. It is
 most likely a typo for *Almond* (deli category fit), possibly *Salmon*. A
@@ -159,8 +159,8 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Case study from *Analytics and Big Data* (ESADE).
-Strategic recommendations developed by the team during the case-study work.
-Visualization choices follow Prof. Manel Guerris's data-visualization deck
-(KISS · sort-by-value · diverging bars · heatmaps over tables · Beginning
-& End narrative arc).
+Synthetic dataset prepared for the *Advanced Programming with Python* course
+at ESADE. Strategic recommendations developed by the team during the
+course work. Visualization choices follow Prof. Manel Guerris's
+data-visualization deck (KISS · sort-by-value · diverging bars · heatmaps
+over tables · Beginning & End narrative arc).
