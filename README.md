@@ -5,9 +5,6 @@ decision tool for the store manager.
 
 **Live dashboard:** **https://wine-shop-customer-dashboard-group3.streamlit.app**
 
-**Team:** Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · Patricia Unger
-**Course:** ESADE MSc Business Analytics · Advanced Programming with Python · May 2026
-
 ---
 
 ## How to read this repo
@@ -156,6 +153,10 @@ an asterisk marker links every mention to the disambiguation note.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Built by
+
+Sabeena Awan · Brice Da Costa · Lucas Joris Haesaert · Patricia Unger
 
 ## Acknowledgements
 
